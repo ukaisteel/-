@@ -39,7 +39,7 @@
     padding:12px 12px;
     border:1px solid var(--bd);
     border-radius: var(--radius);
-    font-size:16px; /* iOSズーム防止 */
+    font-size:16px;
     box-sizing:border-box;
     background:#fff;
   }
@@ -156,9 +156,9 @@
 
     <div class="controls">
       <button id="btnClear" type="button">本数クリア</button>
-      <button id="btnPdfShare" type="button">PDF出力（A4 1枚 / 共有）</button>
+      <button id="btnPdfShare" type="button">PDF出力（マトリクス表）</button>
     </div>
-    <div class="muted" style="margin-top:8px;">※PDFは日本語フォントを埋め込みます（初回は少しだけ時間がかかります）</div>
+    <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋合計＋重量を出します。</div>
   </div>
 
   <div class="sectionTitle">重量計算</div>
@@ -191,7 +191,7 @@
   </details>
 </div>
 
-<!-- pdf-lib + fontkit -->
+<!-- PDF生成（日本語フォント用にfontkit必須） -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
@@ -238,6 +238,10 @@ function todayStr(){
   return `${yyyy}/${mm}/${dd}`;
 }
 document.getElementById("today").textContent = todayStr();
+
+function safeFilename(s){
+  return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+}
 
 /* =========================
    5) 計算
@@ -343,12 +347,10 @@ document.getElementById("btnClear").addEventListener("click", ()=>{
 });
 
 /* =========================
-   7) PDF（日本語文字化けゼロ版）
-   - TTFを埋め込み
-   - subset:false（安定優先）
+   7) 日本語フォント（TTF）取得
 ========================= */
 const FONT_URLS = [
-  "./NotoSansCJKjp-Regular.ttf", // ←同梱できたら最強
+  "./NotoSansCJKjp-Regular.ttf", // 同梱できたら最強
   "https://raw.githubusercontent.com/minoryorg/Noto-Sans-CJK-JP/master/fonts/NotoSansCJKjp-Regular.ttf"
 ];
 let cachedFontBytes = null;
@@ -356,7 +358,6 @@ let cachedFontBytes = null;
 async function getFontBytes(){
   if (cachedFontBytes) return cachedFontBytes;
   let lastErr = null;
-
   for (const url of FONT_URLS) {
     try {
       const r = await fetch(url, { cache: "force-cache" });
@@ -370,17 +371,16 @@ async function getFontBytes(){
   throw lastErr || new Error("font fetch failed");
 }
 
-function safeFilename(s){
-  return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
-}
-
+/* =========================
+   8) PDF（マトリクス表）
+========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
     alert("PDF機能の読み込みに失敗しました。通信がある状態で再読み込みしてください。");
     return;
   }
 
-  // フォント取得（失敗したら“ぐちゃぐちゃPDF”を出さない）
+  // フォント取得（失敗したら中止：文字化けPDFを出さない）
   let fontBytes;
   try {
     fontBytes = await getFontBytes();
@@ -395,17 +395,24 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   const floor = (document.getElementById("floor").value || "").trim();
   const detail= (document.getElementById("detail").value || "").trim();
   const today = document.getElementById("today").textContent.trim();
-  const selectedDia = diaSel.value;
 
   const { sumByDia, grand } = computeSums();
 
-  // 選択径の材長別明細
-  const items = [];
+  // 本数の行合計・列合計
+  const rowSum = {};
+  const colSum = {};
+  for (const d of DIAS) colSum[d] = 0;
+
   for (const m of LENGTHS_M) {
-    const q = qty[m][selectedDia] || 0;
-    if (!q) continue;
-    items.push({ len_mm: Math.round(m*1000), qty: q, kg: KG_PER_M[selectedDia]*m*q });
+    let s = 0;
+    for (const d of DIAS) {
+      const q = qty[m][d] || 0;
+      s += q;
+      colSum[d] += q;
+    }
+    rowSum[m] = s;
   }
+  const totalBars = DIAS.reduce((acc,d)=>acc+colSum[d],0);
 
   try {
     const { PDFDocument } = window.PDFLib;
@@ -413,123 +420,173 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     pdfDoc.registerFontkit(window.fontkit);
     const fontJP = await pdfDoc.embedFont(fontBytes, { subset: false });
 
+    // A4
     const pageW = 595.28, pageH = 841.89;
     const page = pdfDoc.addPage([pageW, pageH]);
-    const M = 32;
-    const contentW = pageW - M*2;
+
+    // ===== レイアウト（A4 1枚固定）=====
+    const M = 22;
     let y = pageH - M;
 
-    const hr = () => {
-      y -= 6;
-      page.drawLine({ start:{x:M,y}, end:{x:pageW-M,y}, thickness:1 });
-      y -= 10;
+    const titleSize = 14;
+    const infoSize  = 10;
+    const headSize  = 8;
+    const cellSize  = 8;
+    const smallSize = 9;
+
+    const drawLine = () => {
+      page.drawLine({ start:{x:M, y}, end:{x:pageW-M, y}, thickness:1 });
+      y -= 12;
     };
 
-    const draw = (text, size=11, x=M) => {
-      page.drawText(text, { x, y, size, font: fontJP });
-      y -= (size + 5);
-    };
+    // 右上：会社名＋日付
+    page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y: y - 10, size: 12, font: fontJP });
+    page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y - 28, size: 9, font: fontJP });
 
-    const drawWrap = (text, size=11) => {
-      page.drawText(text, { x:M, y, size, font: fontJP, maxWidth: contentW, lineHeight: size+4 });
-      // ざっくり行数見積（A4 1枚固定なのでこれで十分安定）
-      const approx = Math.max(12, Math.floor(contentW / (size*0.9)));
-      const lines = Math.max(1, Math.ceil(text.length / approx));
-      y -= lines*(size+4) + 2;
+    page.drawText("重量計算（マトリクス表）", { x: M, y: y - 14, size: titleSize, font: fontJP });
+    y -= 34;
+
+    const infoLine = (text) => {
+      page.drawText(text, { x: M, y, size: infoSize, font: fontJP, maxWidth: pageW - M*2, lineHeight: infoSize+3 });
+      y -= (infoSize + 6);
+    };
+    infoLine(`工事名: ${work || "（未入力）"}`);
+    infoLine(`元請名: ${prime || "（未入力）"}`);
+    infoLine(`積算内訳: ${(floor + (detail ? " / " + detail : "")) || "（未入力）"}`);
+
+    y -= 6;
+    drawLine();
+
+    // ===== マトリクス表 =====
+    const wLen = 64;
+    const wDia = 52;
+    const wSum = 54;
+    const tableW = wLen + wDia*DIAS.length + wSum;
+
+    const hHead = 18;
+    const hRow = 16;
+
+    const tx = M;
+    const ty = y;
+
+    const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
+
+    // 外枠
+    page.drawRectangle({ x: tx, y: ty - tableH, width: tableW, height: tableH, borderWidth: 1 });
+
+    // 罫線
+    const lineH = (yy) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:0.5 });
+    const lineV = (xx) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:0.5 });
+
+    lineV(tx);
+    lineV(tx + wLen);
+    for (let i=0;i<DIAS.length;i++) lineV(tx + wLen + wDia*(i+1));
+    lineV(tx + wLen + wDia*DIAS.length + wSum);
+
+    lineH(ty);
+    lineH(ty - hHead);
+    for (let r=0;r<LENGTHS_M.length;r++){
+      lineH(ty - hHead - hRow*(r+1));
+    }
+    lineH(ty - hHead - hRow*LENGTHS_M.length - hHead);
+
+    // 中央寄せ
+    const centerText = (text, cx, cy, size) => {
+      const approxW = text.length * size * 0.55;
+      page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP });
     };
 
     // ヘッダー
-    page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y, size: 13, font: fontJP });
-    page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y-18, size: 10, font: fontJP });
-
-    draw("重量計算（A4 1枚）", 16);
-    hr();
-
-    drawWrap(`工事名: ${work || "（未入力）"}`, 11);
-    drawWrap(`元請名: ${prime || "（未入力）"}`, 11);
-    drawWrap(`積算内訳: ${(floor + (detail ? " / " + detail : "")) || "（未入力）"}`, 11);
-    hr();
-
-    draw(`総重量: ${grand.toFixed(3)} kg`, 14);
-    y -= 4;
-
-    draw("径別合計（kg）", 12);
-    const col1x=M, col2x=Math.floor(pageW/2)+10, rowH=16;
-    let rowY=y;
-    for(let i=0;i<DIAS.length;i++){
-      const d=DIAS[i];
-      const t=`${d}  ${sumByDia[d].toFixed(3)} kg`;
-      const x=(i%2===0)?col1x:col2x;
-      page.drawText(t,{x,y:rowY,size:11,font:fontJP});
-      if(i%2===1) rowY-=rowH;
+    const hy = ty - hHead/2;
+    centerText("材長", tx + wLen/2, hy, headSize);
+    for (let i=0;i<DIAS.length;i++){
+      centerText(DIAS[i], tx + wLen + wDia*(i+0.5), hy, headSize);
     }
-    y = rowY - 12;
-    hr();
+    centerText("合計", tx + wLen + wDia*DIAS.length + wSum/2, hy, headSize);
 
-    draw(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, 12);
+    // 本体
+    for (let r=0;r<LENGTHS_M.length;r++){
+      const m = LENGTHS_M[r];
+      const cy = ty - hHead - hRow*r - hRow/2;
 
-    const tx1=M, tx2=M+120, tx3=M+220;
-    page.drawText("材長(mm)", {x:tx1,y,size:10,font:fontJP});
-    page.drawText("本数",     {x:tx2,y,size:10,font:fontJP});
-    page.drawText("重量(kg)", {x:tx3,y,size:10,font:fontJP});
-    y-=12;
-    page.drawLine({start:{x:M,y}, end:{x:pageW-M,y}, thickness:1});
-    y-=10;
+      centerText(`${Math.round(m*1000)}`, tx + wLen/2, cy, cellSize);
 
-    // 1枚に入る分だけ描画
-    const bottomLimit = M + 24;
-    const itemH = 14;
-    const maxRows = Math.max(0, Math.floor((y - bottomLimit) / itemH));
-    const drawRows = items.slice(0, Math.max(0, maxRows - 1));
+      for (let c=0;c<DIAS.length;c++){
+        const d = DIAS[c];
+        const q = qty[m][d] || 0;
+        if (q !== 0) centerText(String(q), tx + wLen + wDia*(c+0.5), cy, cellSize);
+      }
 
-    for(const it of drawRows){
-      page.drawText(String(it.len_mm), {x:tx1,y,size:11,font:fontJP});
-      page.drawText(String(it.qty),    {x:tx2,y,size:11,font:fontJP});
-      page.drawText(it.kg.toFixed(3),  {x:tx3,y,size:11,font:fontJP});
-      y -= itemH;
+      const rs = rowSum[m] || 0;
+      if (rs !== 0) centerText(String(rs), tx + wLen + wDia*DIAS.length + wSum/2, cy, cellSize);
     }
 
-    if(items.length===0){
-      page.drawText("（この径の入力はありません）", {x:M,y,size:11,font:fontJP});
-      y -= itemH;
-    } else if(items.length>drawRows.length){
-      page.drawText(`…他 ${items.length-drawRows.length} 行（A4 1枚のため省略）`, {x:M,y,size:10,font:fontJP});
-      y -= itemH;
+    // 合計行（列合計）
+    const sy = ty - hHead - hRow*LENGTHS_M.length - hHead/2;
+    centerText("合計", tx + wLen/2, sy, headSize);
+    for (let c=0;c<DIAS.length;c++){
+      const d = DIAS[c];
+      const cs = colSum[d] || 0;
+      if (cs !== 0) centerText(String(cs), tx + wLen + wDia*(c+0.5), sy, headSize);
     }
+    if (totalBars !== 0) centerText(String(totalBars), tx + wLen + wDia*DIAS.length + wSum/2, sy, headSize);
 
-    page.drawText("※ 明細は選択中の径のみ表示。全径の合計は「径別合計」を参照。", {
-      x:M, y:M+8, size:9, font:fontJP
-    });
+    // 表の下へ
+    let by = (ty - tableH) - 14;
 
+    const sumLine = (text) => {
+      page.drawText(text, { x: M, y: by, size: smallSize, font: fontJP });
+      by -= (smallSize + 5);
+    };
+
+    sumLine(`総重量: ${grand.toFixed(3)} kg`);
+    sumLine("径別重量（kg）:");
+
+    const leftX = M;
+    const rightX = M + 260;
+    let t = 0;
+    for (const d of DIAS) {
+      const s = `${d}: ${sumByDia[d].toFixed(3)} kg`;
+      const xx = (t % 2 === 0) ? leftX : rightX;
+      page.drawText(s, { x: xx, y: by, size: smallSize, font: fontJP });
+      if (t % 2 === 1) by -= (smallSize + 5);
+      t++;
+    }
+    if (t % 2 === 1) by -= (smallSize + 5);
+
+    page.drawText("※ セルは本数。0は空欄表示。", { x: M, y: M + 8, size: 9, font: fontJP });
+
+    // ===== 書き出し・共有 =====
     const pdfBytes = await pdfDoc.save();
     const blob = new Blob([pdfBytes], { type:"application/pdf" });
     const url = URL.createObjectURL(blob);
 
-    const filename = `${safeFilename(work)}_${today}.pdf`;
-    let shared=false;
+    const filename = `${safeFilename(work)}_${today}_matrix.pdf`;
+    let shared = false;
 
-    if(navigator.share){
-      try{
+    if (navigator.share) {
+      try {
         const file = new File([blob], filename, {type:"application/pdf"});
-        if(navigator.canShare && navigator.canShare({files:[file]})){
-          await navigator.share({title:"重量計算 PDF", files:[file]});
-          shared=true;
+        if (navigator.canShare && navigator.canShare({files:[file]})) {
+          await navigator.share({ title:"数量明細 PDF", files:[file] });
+          shared = true;
         }
-      }catch(_){}
+      } catch (_) {}
 
-      if(!shared){
-        try{
-          await navigator.share({title:"重量計算 PDF", url});
-          shared=true;
-        }catch(_){}
+      if (!shared) {
+        try {
+          await navigator.share({ title:"数量明細 PDF", url });
+          shared = true;
+        } catch (_) {}
       }
     }
 
-    if(!shared){
+    if (!shared) {
       const opened = window.open(url, "_blank");
-      const a=document.createElement("a");
-      a.href=url; a.download=filename;
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
+
       alert(opened
         ? "PDFを開きました。PDF画面の共有から別アプリへ出力できます。"
         : "PDFをダウンロードしました。「ファイル」から開いて共有してください。"
