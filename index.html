@@ -17,7 +17,7 @@
     font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
     margin:0;
     background:var(--bg);
-    padding-top: 0; /* spacerで確保 */
+    padding-top: 0; /* ★固定値は使わない（spacerで確保） */
   }
 
   /* ====== 固定ヘッダー（スクロールで縮小） ====== */
@@ -36,7 +36,7 @@
     box-shadow: 0 2px 10px rgba(0,0,0,.06);
   }
 
-  .headerSpacer{ height:0px; } /* JSがtopbarの実高さを入れる */
+  .headerSpacer{ height:0px; } /* ★JSがtopbarの実高さを入れる */
 
   .toprow{
     display:flex;
@@ -194,9 +194,7 @@
     background:#fff;
     font-size:14px;
     font-weight:900;
-    display:none; /* 通常は非表示 */
   }
-  .topbar.shrink .miniBtn{ display:block; } /* 縮小時だけ表示 */
 
   .panel{
     position: fixed;
@@ -211,7 +209,10 @@
     overflow:auto;
     -webkit-overflow-scrolling: touch;
   }
-  .panel.open{ transform: translateY(0); }
+
+  .panel.open{
+    transform: translateY(0);
+  }
 
   .panelHead{
     display:flex;
@@ -239,14 +240,13 @@
 
   /* PCは従来どおり：常に工事情報を表示 */
   @media (min-width: 900px){
-    .miniBtn{ display:none !important; }
+    .miniBtn{ display:none; }
     .panel{
       position: static;
       height:auto;
-      transform:none !important;
+      transform:none;
       padding:0;
       overflow:visible;
-      z-index:auto;
     }
     .panelHead{ display:none; }
   }
@@ -258,17 +258,17 @@
 <div class="topbar">
   <div class="toprow">
     <div class="brandWrap">
+      <!-- ロゴ画像を同じ階層に logo.png で置いてね -->
       <img src="logo.png" alt="ロゴ" class="logo" onerror="this.style.display='none'">
       <div class="brand">鵜飼鉄筋工業</div>
     </div>
     <div id="today" class="date"></div>
   </div>
 
-  <!-- 縮小時だけ出すボタン -->
-  <button class="miniBtn" id="btnPanel" type="button" aria-expanded="true">工事情報を開く</button>
+  <!-- ▼ スマホ最適：工事情報は折りたたみ -->
+  <button class="miniBtn" id="btnPanel" type="button" aria-expanded="false">工事情報を開く</button>
 
-  <!-- 工事情報パネル（最初は開いた状態にする：JSが自動制御） -->
-  <div class="panel open" id="panel" aria-hidden="false">
+  <div class="panel" id="panel" aria-hidden="true">
     <div class="panelHead">
       <div class="panelTitle">工事情報</div>
       <button class="panelClose" id="btnPanelClose" type="button">閉じる</button>
@@ -302,7 +302,7 @@
     </div>
   </div>
 
-  <!-- 径は常に見せる（コンパクト） -->
+  <!-- ▼ 常に見せたい：径だけは上に固定でコンパクト -->
   <div class="compactBar">
     <div class="sectionTitle" style="margin:0;">重量計算</div>
     <div class="hint" style="margin:4px 0 0;">径を選んで本数入力</div>
@@ -315,7 +315,7 @@
   </div>
 </div>
 
-<!-- topbar分のスペース（JSで自動調整） -->
+<!-- ★ topbar分のスペース（JSで高さを自動調整） -->
 <div class="headerSpacer" id="headerSpacer"></div>
 
 <!-- ====== 本体 ====== -->
@@ -345,87 +345,63 @@
 
 <script>
 /* =========================
-   0) ヘッダー縮小 + スペーサー同期 + 工事情報パネル自動開閉
+   0) ヘッダー縮小 + スペーサー同期（重要）
 ========================= */
 (function(){
-  const topbar   = document.querySelector(".topbar");
-  const spacer   = document.getElementById("headerSpacer");
-
-  const panel    = document.getElementById("panel");
-  const btn      = document.getElementById("btnPanel");
-  const closeBtn = document.getElementById("btnPanelClose");
-
-  const isDesktop = () => window.matchMedia("(min-width: 900px)").matches;
+  const topbar = document.querySelector(".topbar");
+  const spacer = document.getElementById("headerSpacer");
 
   const syncSpacer = () => {
     spacer.style.height = topbar.offsetHeight + "px";
   };
 
-  const openPanel = () => {
-    if (!panel) return;
-    panel.classList.add("open");
-    panel.setAttribute("aria-hidden","false");
-    if (btn) btn.setAttribute("aria-expanded","true");
-    if (!isDesktop()) document.body.style.overflow = "hidden";
-  };
-
-  const closePanel = () => {
-    if (!panel) return;
-    panel.classList.remove("open");
-    panel.setAttribute("aria-hidden","true");
-    if (btn) btn.setAttribute("aria-expanded","false");
-    document.body.style.overflow = "";
-  };
-
-  const applyAuto = () => {
-    if (isDesktop()) {
-      document.body.style.overflow = "";
-      if (panel) {
-        panel.classList.add("open");
-        panel.setAttribute("aria-hidden","false");
-      }
-      if (btn) btn.setAttribute("aria-expanded","true");
-      syncSpacer();
-      return;
-    }
-
-    if (window.scrollY > 40) {
-      topbar.classList.add("shrink");
-      closePanel();     // 縮小時は自動で畳む
-    } else {
-      topbar.classList.remove("shrink");
-      openPanel();      // 上部は自動で展開
-    }
+  const onScroll = () => {
+    if (window.scrollY > 40) topbar.classList.add("shrink");
+    else topbar.classList.remove("shrink");
     syncSpacer();
   };
 
-  // 手動開閉（縮小時だけボタンが見える）
-  if (btn && panel) {
-    btn.addEventListener("click", ()=>{
-      panel.classList.contains("open") ? closePanel() : openPanel();
-      syncSpacer();
-    });
-  }
-  if (closeBtn) {
-    closeBtn.addEventListener("click", ()=>{
-      closePanel();
-      syncSpacer();
-    });
-  }
+  window.addEventListener("scroll", onScroll, { passive:true });
+  window.addEventListener("resize", syncSpacer);
+  window.addEventListener("orientationchange", syncSpacer);
+
+  // 初期化
+  syncSpacer();
+  onScroll();
+})();
+
+/* =========================
+   0.5) 工事情報パネル（小窓）開閉
+========================= */
+(function(){
+  const panel = document.getElementById("panel");
+  const btn = document.getElementById("btnPanel");
+  const closeBtn = document.getElementById("btnPanelClose");
+  if(!panel || !btn || !closeBtn) return;
+
+  const openPanel = () => {
+    panel.classList.add("open");
+    panel.setAttribute("aria-hidden","false");
+    btn.setAttribute("aria-expanded","true");
+    btn.textContent = "工事情報を閉じる";
+  };
+
+  const closePanel = () => {
+    panel.classList.remove("open");
+    panel.setAttribute("aria-hidden","true");
+    btn.setAttribute("aria-expanded","false");
+    btn.textContent = "工事情報を開く";
+  };
+
+  btn.addEventListener("click", ()=>{
+    panel.classList.contains("open") ? closePanel() : openPanel();
+  });
+  closeBtn.addEventListener("click", closePanel);
 
   // Escで閉じる（PC）
   document.addEventListener("keydown", (e)=>{
-    if (e.key === "Escape" && panel && panel.classList.contains("open") && !isDesktop()) {
-      closePanel();
-      syncSpacer();
-    }
+    if (e.key === "Escape" && panel.classList.contains("open")) closePanel();
   });
-
-  window.addEventListener("scroll", applyAuto, { passive:true });
-  window.addEventListener("resize", applyAuto);
-  window.addEventListener("orientationchange", applyAuto);
-
-  applyAuto();
 })();
 
 /* =========================
