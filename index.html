@@ -191,7 +191,6 @@
   </details>
 </div>
 
-<!-- PDF生成（日本語フォント用にfontkit必須） -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
@@ -201,8 +200,6 @@
 ========================= */
 const KG_PER_M = { D10:0.560, D13:0.995, D16:1.560, D19:2.250, D22:3.040, D25:3.980, D29:5.040, D32:6.310 };
 const DIAS = Object.keys(KG_PER_M);
-
-// 3.5m〜12.0m（0.5m刻み）
 const LENGTHS_M = Array.from({length: ((12.0 - 3.5)/0.5)+1}, (_,i)=>+(3.5+0.5*i).toFixed(1));
 
 /* =========================
@@ -318,7 +315,6 @@ function renderList(){
   updateTotals();
 }
 
-/* 入力イベント（今見てる径に対して更新） */
 listEl.addEventListener("input", (e)=>{
   const inp = e.target.closest(".inp");
   if (!inp) return;
@@ -332,14 +328,11 @@ listEl.addEventListener("input", (e)=>{
   updateTotals();
 });
 
-/* 径切替 */
 diaSel.addEventListener("change", renderList);
 
-/* 初期：径リスト */
 diaSel.innerHTML = DIAS.map(d=>`<option value="${d}">${d}</option>`).join("");
 diaSel.value = "D13";
 
-/* クリア */
 document.getElementById("btnClear").addEventListener("click", ()=>{
   if(!confirm("本数を全部クリアしますか？")) return;
   for (const m of LENGTHS_M) for (const d of DIAS) qty[m][d] = 0;
@@ -350,7 +343,7 @@ document.getElementById("btnClear").addEventListener("click", ()=>{
    7) 日本語フォント（TTF）取得
 ========================= */
 const FONT_URLS = [
-  "./NotoSansCJKjp-Regular.ttf", // 同梱できたら最強
+  "./NotoSansCJKjp-Regular.ttf",
   "https://raw.githubusercontent.com/minoryorg/Noto-Sans-CJK-JP/master/fonts/NotoSansCJKjp-Regular.ttf"
 ];
 let cachedFontBytes = null;
@@ -372,7 +365,7 @@ async function getFontBytes(){
 }
 
 /* =========================
-   8) PDF（マトリクス表）
+   8) PDF（マトリクス表）※真っ黒修正
 ========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
@@ -380,7 +373,6 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     return;
   }
 
-  // フォント取得（失敗したら中止：文字化けPDFを出さない）
   let fontBytes;
   try {
     fontBytes = await getFontBytes();
@@ -415,16 +407,18 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   const totalBars = DIAS.reduce((acc,d)=>acc+colSum[d],0);
 
   try {
-    const { PDFDocument } = window.PDFLib;
+    const { PDFDocument, rgb } = window.PDFLib; // ★ rgb を使う（重要）
+    const BLACK = rgb(0,0,0);
+    const WHITE = rgb(1,1,1);
+
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(window.fontkit);
     const fontJP = await pdfDoc.embedFont(fontBytes, { subset: false });
 
-    // A4
     const pageW = 595.28, pageH = 841.89;
     const page = pdfDoc.addPage([pageW, pageH]);
 
-    // ===== レイアウト（A4 1枚固定）=====
+    // レイアウト
     const M = 22;
     let y = pageH - M;
 
@@ -435,19 +429,19 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     const smallSize = 9;
 
     const drawLine = () => {
-      page.drawLine({ start:{x:M, y}, end:{x:pageW-M, y}, thickness:1 });
+      page.drawLine({ start:{x:M, y}, end:{x:pageW-M, y}, thickness:1, color: BLACK });
       y -= 12;
     };
 
-    // 右上：会社名＋日付
-    page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y: y - 10, size: 12, font: fontJP });
-    page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y - 28, size: 9, font: fontJP });
+    // 右上
+    page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y: y - 10, size: 12, font: fontJP, color: BLACK });
+    page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y - 28, size: 9, font: fontJP, color: BLACK });
 
-    page.drawText("重量計算（マトリクス表）", { x: M, y: y - 14, size: titleSize, font: fontJP });
+    page.drawText("重量計算（マトリクス表）", { x: M, y: y - 14, size: titleSize, font: fontJP, color: BLACK });
     y -= 34;
 
     const infoLine = (text) => {
-      page.drawText(text, { x: M, y, size: infoSize, font: fontJP, maxWidth: pageW - M*2, lineHeight: infoSize+3 });
+      page.drawText(text, { x: M, y, size: infoSize, font: fontJP, color: BLACK, maxWidth: pageW - M*2, lineHeight: infoSize+3 });
       y -= (infoSize + 6);
     };
     infoLine(`工事名: ${work || "（未入力）"}`);
@@ -457,7 +451,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     y -= 6;
     drawLine();
 
-    // ===== マトリクス表 =====
+    // 表サイズ
     const wLen = 64;
     const wDia = 52;
     const wSum = 54;
@@ -468,15 +462,21 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
 
     const tx = M;
     const ty = y;
-
     const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
 
-    // 外枠
-    page.drawRectangle({ x: tx, y: ty - tableH, width: tableW, height: tableH, borderWidth: 1 });
+    // ★ ここが真っ黒の原因だった：白塗り + 枠線黒 を明示
+    page.drawRectangle({
+      x: tx, y: ty - tableH, width: tableW, height: tableH,
+      color: WHITE,               // 塗りを白に固定
+      borderColor: BLACK,         // 枠線を黒
+      borderWidth: 1,
+      opacity: 1,
+      borderOpacity: 1
+    });
 
     // 罫線
-    const lineH = (yy) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:0.5 });
-    const lineV = (xx) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:0.5 });
+    const lineH = (yy) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:0.5, color: BLACK });
+    const lineV = (xx) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:0.5, color: BLACK });
 
     lineV(tx);
     lineV(tx + wLen);
@@ -490,10 +490,10 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     }
     lineH(ty - hHead - hRow*LENGTHS_M.length - hHead);
 
-    // 中央寄せ
+    // 中央寄せ（簡易）
     const centerText = (text, cx, cy, size) => {
       const approxW = text.length * size * 0.55;
-      page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP });
+      page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP, color: BLACK });
     };
 
     // ヘッダー
@@ -521,7 +521,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       if (rs !== 0) centerText(String(rs), tx + wLen + wDia*DIAS.length + wSum/2, cy, cellSize);
     }
 
-    // 合計行（列合計）
+    // 合計行
     const sy = ty - hHead - hRow*LENGTHS_M.length - hHead/2;
     centerText("合計", tx + wLen/2, sy, headSize);
     for (let c=0;c<DIAS.length;c++){
@@ -531,11 +531,10 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     }
     if (totalBars !== 0) centerText(String(totalBars), tx + wLen + wDia*DIAS.length + wSum/2, sy, headSize);
 
-    // 表の下へ
+    // 下：重量
     let by = (ty - tableH) - 14;
-
     const sumLine = (text) => {
-      page.drawText(text, { x: M, y: by, size: smallSize, font: fontJP });
+      page.drawText(text, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
       by -= (smallSize + 5);
     };
 
@@ -548,15 +547,15 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     for (const d of DIAS) {
       const s = `${d}: ${sumByDia[d].toFixed(3)} kg`;
       const xx = (t % 2 === 0) ? leftX : rightX;
-      page.drawText(s, { x: xx, y: by, size: smallSize, font: fontJP });
+      page.drawText(s, { x: xx, y: by, size: smallSize, font: fontJP, color: BLACK });
       if (t % 2 === 1) by -= (smallSize + 5);
       t++;
     }
     if (t % 2 === 1) by -= (smallSize + 5);
 
-    page.drawText("※ セルは本数。0は空欄表示。", { x: M, y: M + 8, size: 9, font: fontJP });
+    page.drawText("※ セルは本数（0は空欄）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
 
-    // ===== 書き出し・共有 =====
+    // 出力
     const pdfBytes = await pdfDoc.save();
     const blob = new Blob([pdfBytes], { type:"application/pdf" });
     const url = URL.createObjectURL(blob);
@@ -568,14 +567,14 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       try {
         const file = new File([blob], filename, {type:"application/pdf"});
         if (navigator.canShare && navigator.canShare({files:[file]})) {
-          await navigator.share({ title:"数量明細 PDF", files:[file] });
+          await navigator.share({ title:"重量計算 PDF", files:[file] });
           shared = true;
         }
       } catch (_) {}
 
       if (!shared) {
         try {
-          await navigator.share({ title:"数量明細 PDF", url });
+          await navigator.share({ title:"重量計算 PDF", url });
           shared = true;
         } catch (_) {}
       }
