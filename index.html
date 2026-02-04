@@ -33,7 +33,7 @@
     border:1px solid #ddd;
     border-radius: var(--radius);
     padding:12px;
-    background: #fff;
+    background:#fff;
   }
   label{ display:block; font-size:12px; color:var(--muted); margin:8px 0 6px; }
   input[type="text"], select{
@@ -41,21 +41,15 @@
     padding:12px 12px;
     border:1px solid var(--bd);
     border-radius: var(--radius);
-    font-size:16px; /* iOSズーム防止 */
+    font-size:16px;
     box-sizing:border-box;
     background:#fff;
   }
-  .inline{
-    display:flex; gap:10px; align-items:center;
-  }
+  .inline{ display:flex; gap:10px; align-items:center; }
   .inline .floor{ width:38%; min-width:120px; }
   .inline .detail{ flex:1; }
 
-  .sectionTitle{
-    font-weight:900;
-    font-size:16px;
-    margin:10px 0 0;
-  }
+  .sectionTitle{ font-weight:900; font-size:16px; margin:10px 0 0; }
   .hint{ color:var(--muted); font-size:12px; margin:6px 0 0; }
 
   .controls{
@@ -147,7 +141,6 @@
 </head>
 
 <body>
-
 <div class="topbar">
   <div class="toprow">
     <div class="brand">鵜飼鉄筋工業</div>
@@ -156,7 +149,7 @@
 
   <div class="card">
     <label for="work">工事名</label>
-    <input id="work" type="text" placeholder="例：牧志テナントビル １壁" autocomplete="off">
+    <input id="work" type="text" placeholder="例：うんこ" autocomplete="off">
 
     <label for="prime">元請名</label>
     <input id="prime" type="text" placeholder="例：〇〇建設株式会社" autocomplete="off">
@@ -209,7 +202,7 @@
   </details>
 </div>
 
-<!-- pdf-lib + fontkit（日本語フォント埋め込みに必要） -->
+<!-- pdf-lib + fontkit（日本語フォント埋め込み必須） -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
@@ -226,8 +219,6 @@
   // JIS（一般に使われる単位質量 kg/m）
   const KG_PER_M = { D10:0.560, D13:0.995, D16:1.560, D19:2.250, D22:3.040, D25:3.980, D29:5.040, D32:6.310 };
   const DIAS = Object.keys(KG_PER_M);
-
-  // 3.5m〜12.0m（0.5m刻み）
   const LENGTHS_M = Array.from({length: ((12.0 - 3.5)/0.5)+1}, (_,i)=>+(3.5+0.5*i).toFixed(1));
 
   // マトリクス保持：qty[len_m][dia]
@@ -254,7 +245,6 @@
   function computeSums(){
     const sumByDia = {};
     for(const d of DIAS) sumByDia[d] = 0;
-
     for(const m of LENGTHS_M){
       for(const d of DIAS){
         const q = qty[m][d] || 0;
@@ -300,7 +290,7 @@
     LENGTHS_M.forEach(m=>{
       const q = qty[m][d] || 0;
       const kg = KG_PER_M[d] * m * q;
-      const cell = listEl.querySelector(`.kg[data-kg="${m}"]`);
+      const cell = listEl.querySelector(\`.kg[data-kg="\${m}"]\`);
       if(cell) cell.textContent = fmt3(kg);
     });
   }
@@ -341,38 +331,64 @@
     renderList();
   });
 
-  // ===== 日本語フォント（Noto Sans JP）を1回だけ読み込んでキャッシュ =====
-  // ※ ここはCDNから読み込み。もしネットが不安なら、後でフォントファイルをリポジトリに置いて
-  //    FONT_URL を "./NotoSansJP-Regular.otf" に変えるのが最強です。
-  const FONT_URL = "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf";
+  // ===== 日本語フォント（TTF）を読み込んでキャッシュ =====
+  // 1) まずローカル同梱（推奨）： ./NotoSansCJKjp-Regular.ttf
+  // 2) 無ければネットTTFへフォールバック
+  const FONT_URLS = [
+    "./NotoSansCJKjp-Regular.ttf",
+    "https://raw.githubusercontent.com/minoryorg/Noto-Sans-CJK-JP/master/fonts/NotoSansCJKjp-Regular.ttf"
+  ];
   let cachedJpFontBytes = null;
 
   async function getJpFontBytes(){
     if (cachedJpFontBytes) return cachedJpFontBytes;
-    const res = await fetch(FONT_URL, { cache: "force-cache" });
-    if (!res.ok) throw new Error("日本語フォントの取得に失敗しました");
-    cachedJpFontBytes = await res.arrayBuffer();
-    return cachedJpFontBytes;
+
+    let lastErr = null;
+    for (const url of FONT_URLS) {
+      try {
+        const res = await fetch(url, { cache: "force-cache" });
+        if (!res.ok) throw new Error(`font fetch failed: ${res.status}`);
+        cachedJpFontBytes = await res.arrayBuffer();
+        return cachedJpFontBytes;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("日本語フォント取得に失敗");
   }
 
-  // ===== PDF出力（A4 1枚 / 日本語OK / 共有フォールバック付き）=====
+  // ===== PDF（A4 1枚 / 共有・フォールバック付き / 文字化け対策済み）=====
   document.getElementById("btnPdfShare").addEventListener("click", exportPdfShare);
 
-  async function exportPdfShare() {
+  function safeFilename(s){
+    return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+  }
+
+  async function exportPdfShare(){
     if (!window.PDFLib || !window.fontkit) {
-      alert("PDF機能の読み込みに失敗しました。通信がある状態で再読み込みしてください。");
+      alert("PDF機能の読み込みに失敗しました。通信がある状態でページを再読み込みしてください。");
+      return;
+    }
+
+    const work  = (document.getElementById("work")?.value || "").trim();
+    const prime = (document.getElementById("prime")?.value || "").trim();
+    const floor = (document.getElementById("floor")?.value || "").trim();
+    const detail= (document.getElementById("detail")?.value || "").trim();
+    const today = (document.getElementById("today")?.textContent || "").trim();
+    const selectedDia = (document.getElementById("dia")?.value || "D13").trim();
+
+    // フォントが取れないと日本語が崩れるので、必ず取れてからPDFを作る
+    let jpBytes;
+    try {
+      jpBytes = await getJpFontBytes();
+    } catch (e) {
+      console.error(e);
+      alert("日本語フォントの取得に失敗しました。\n電波が弱い場合はフォントをリポジトリに同梱すると確実です。");
       return;
     }
 
     try {
-      const { PDFDocument, StandardFonts } = window.PDFLib;
-
-      const work  = (document.getElementById("work")?.value || "").trim();
-      const prime = (document.getElementById("prime")?.value || "").trim();
-      const floor = (document.getElementById("floor")?.value || "").trim();
-      const detail= (document.getElementById("detail")?.value || "").trim();
-      const today = (document.getElementById("today")?.textContent || "").trim();
-      const selectedDia = (document.getElementById("dia")?.value || "D13").trim();
+      const { PDFDocument } = window.PDFLib;
 
       const { sumByDia, grand } = computeSums();
 
@@ -388,57 +404,67 @@
         });
       }
 
-      // ===== PDF（A4 1枚固定）=====
+      // ===== PDF作成 =====
       const pdfDoc = await PDFDocument.create();
       pdfDoc.registerFontkit(window.fontkit);
 
-      // 日本語フォント埋め込み（失敗したら英字フォールバック）
-      let fontJP = null;
-      try {
-        const jpBytes = await getJpFontBytes();
-        fontJP = await pdfDoc.embedFont(jpBytes, { subset: true });
-      } catch (_) {
-        fontJP = null;
-      }
-      const fontEN = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const font = fontJP || fontEN;
+      // ★ 文字化け対策：TTF + subset:false（安定優先）
+      const fontJP = await pdfDoc.embedFont(jpBytes, { subset: false });
 
-      const pageW = 595.28, pageH = 841.89; // A4
+      const pageW = 595.28, pageH = 841.89; // A4 pt
       const page = pdfDoc.addPage([pageW, pageH]);
 
       const M = 32;
+      const contentW = pageW - M*2;
       let y = pageH - M;
 
-      const line = (text, x, size = 11, useFont = font) => {
-        page.drawText(text, { x, y, size, font: useFont });
-        y -= (size + 4);
-      };
-      const hr = () => {
+      const lineHeight = (size)=> size + 5;
+
+      function drawText(str, x, size, opts = {}){
+        page.drawText(str, { x, y, size, font: fontJP, ...opts });
+        y -= lineHeight(size);
+      }
+
+      function drawWrapped(label, value, size=11){
+        // ラベル: 値 を折り返しで表示（A4でも崩れない）
+        const text = `${label}${value}`;
+        const maxWidth = contentW;
+        page.drawText(text, {
+          x: M, y, size, font: fontJP,
+          maxWidth,
+          lineHeight: size + 4
+        });
+        // だいたいの行数を見積もってyを下げる（厳密でなくても1ページ内に収める設計）
+        const approxCharsPerLine = Math.max(10, Math.floor(maxWidth / (size * 0.9)));
+        const lines = Math.max(1, Math.ceil(text.length / approxCharsPerLine));
+        y -= lines * (size + 4) + 2;
+      }
+
+      function hr(){
         y -= 6;
         page.drawLine({ start: { x: M, y }, end: { x: pageW - M, y }, thickness: 1 });
         y -= 10;
-      };
-      const ell = (s, max = 44) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+      }
 
-      // ヘッダー（日本語OK）
-      page.drawText(fontJP ? "鵜飼鉄筋工業" : "UKAI REBAR", { x: pageW - M - 130, y, size: 13, font });
-      page.drawText(today ? `日付: ${today}` : "", { x: pageW - M - 170, y: y - 18, size: 10, font });
+      // ===== ヘッダー =====
+      page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y, size: 13, font: fontJP });
+      page.drawText(today ? `日付: ${today}` : "", { x: pageW - M - 170, y: y - 18, size: 10, font: fontJP });
 
-      line("重量計算（A4 1枚）", M, 16);
+      drawText("重量計算（A4 1枚）", M, 16);
       hr();
 
-      // 基本情報
-      line(`工事名: ${ell(work || "（未入力）", 50)}`, M, 11);
-      line(`元請名: ${ell(prime || "（未入力）", 50)}`, M, 11);
-      line(`積算内訳: ${ell((floor || "") + (detail ? " / " + detail : "") || "（未入力）", 60)}`, M, 11);
+      // ===== 基本情報（折り返し）=====
+      drawWrapped("工事名: ", work || "（未入力）");
+      drawWrapped("元請名: ", prime || "（未入力）");
+      drawWrapped("積算内訳: ", (floor || "") + (detail ? " / " + detail : "") || "（未入力）");
       hr();
 
-      // 総重量
-      line(`総重量: ${grand.toFixed(3)} kg`, M, 14);
+      // ===== 総重量 =====
+      drawText(`総重量: ${grand.toFixed(3)} kg`, M, 14);
       y -= 4;
 
-      // 径別合計（2列）
-      line("径別合計（kg）", M, 12);
+      // ===== 径別合計（2列×4行）=====
+      drawText("径別合計（kg）", M, 12);
 
       const col1x = M;
       const col2x = Math.floor(pageW / 2) + 10;
@@ -450,60 +476,57 @@
         const txt = `${d}  ${sumByDia[d].toFixed(3)} kg`;
         const isLeft = (i % 2 === 0);
         const x = isLeft ? col1x : col2x;
-        page.drawText(txt, { x, y: rowY, size: 11, font });
+        page.drawText(txt, { x, y: rowY, size: 11, font: fontJP });
         if (!isLeft) rowY -= rowH;
       }
       y = rowY - 12;
       hr();
 
-      // 明細（選択径のみ、入る分だけ）
-      line(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, M, 12);
+      // ===== 明細（選択径のみ / 入る分だけ）=====
+      drawText(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, M, 12);
 
-      const tx1 = M, tx2 = M + 120, tx3 = M + 220, tx4 = pageW - M - 90;
-
-      page.drawText("材長(mm)", { x: tx1, y, size: 10, font });
-      page.drawText("本数",     { x: tx2, y, size: 10, font });
-      page.drawText("重量(kg)", { x: tx3, y, size: 10, font });
-      page.drawText("備考",     { x: tx4, y, size: 10, font });
+      const tx1 = M, tx2 = M + 120, tx3 = M + 220;
+      page.drawText("材長(mm)", { x: tx1, y, size: 10, font: fontJP });
+      page.drawText("本数",     { x: tx2, y, size: 10, font: fontJP });
+      page.drawText("重量(kg)", { x: tx3, y, size: 10, font: fontJP });
       y -= 12;
 
       page.drawLine({ start: { x: M, y }, end: { x: pageW - M, y }, thickness: 1 });
       y -= 10;
 
-      const bottomLimit = M + 20;
+      const bottomLimit = M + 24;
       const itemRowH = 14;
       const maxRows = Math.max(0, Math.floor((y - bottomLimit) / itemRowH));
       const rowsToDraw = selectedItems.slice(0, Math.max(0, maxRows - 1));
 
       for (const it of rowsToDraw) {
-        page.drawText(String(it.len_mm), { x: tx1, y, size: 11, font });
-        page.drawText(String(it.qty),    { x: tx2, y, size: 11, font });
-        page.drawText(it.kg.toFixed(3),  { x: tx3, y, size: 11, font });
+        page.drawText(String(it.len_mm), { x: tx1, y, size: 11, font: fontJP });
+        page.drawText(String(it.qty),    { x: tx2, y, size: 11, font: fontJP });
+        page.drawText(it.kg.toFixed(3),  { x: tx3, y, size: 11, font: fontJP });
         y -= itemRowH;
       }
 
       if (selectedItems.length === 0) {
-        page.drawText("（この径の入力はありません）", { x: M, y, size: 11, font });
+        page.drawText("（この径の入力はありません）", { x: M, y, size: 11, font: fontJP });
         y -= itemRowH;
       } else if (selectedItems.length > rowsToDraw.length) {
-        page.drawText(`…他 ${selectedItems.length - rowsToDraw.length} 行（A4 1枚のため省略）`, { x: M, y, size: 10, font });
+        page.drawText(`…他 ${selectedItems.length - rowsToDraw.length} 行（A4 1枚のため省略）`, { x: M, y, size: 10, font: fontJP });
         y -= itemRowH;
       }
 
       page.drawText("※ 明細は選択中の径のみ表示。全径の合計は「径別合計」を参照。", {
-        x: M, y: M + 6, size: 9, font
+        x: M, y: M + 8, size: 9, font: fontJP
       });
 
+      // ===== 書き出し =====
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
       const blobUrl = URL.createObjectURL(blob);
 
-      const safeWork = (work || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
-      const filename = `${safeWork}_${today || "date"}.pdf`;
-
-      // 共有（files→url）→ダメなら開く＆DL
+      const filename = `${safeFilename(work)}_${today || "date"}.pdf`;
       let shared = false;
 
+      // iOSは「files共有」が通ることが多いが、通らない機種もあるので両対応
       if (navigator.share) {
         try {
           const file = new File([blob], filename, { type: "application/pdf" });
@@ -521,6 +544,7 @@
         }
       }
 
+      // 共有できない/失敗 → PDFを開く + ダウンロード
       if (!shared) {
         const opened = window.open(blobUrl, "_blank");
         const a = document.createElement("a");
