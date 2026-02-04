@@ -371,8 +371,9 @@ async function getFontBytes(){
 
 /* =========================
    8) PDF（数量明細：マトリクス表）
-   - 右端の合計列なし
-   - 下段は「径別 合計重量(kg)」
+   - 外枠太め
+   - ヘッダー/合計kg行を薄グレー背景
+   - 材長は「xxxxmm」
 ========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
@@ -401,6 +402,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     const { PDFDocument, rgb } = window.PDFLib;
     const BLACK = rgb(0,0,0);
     const WHITE = rgb(1,1,1);
+    const GRAY  = rgb(0.92, 0.92, 0.92); // ヘッダー背景
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(window.fontkit);
@@ -415,7 +417,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
 
     const titleSize = 14;
     const infoSize  = 10;
-    const headSize  = 8;
+    const headSize  = 9;   // 少しUP
     const cellSize  = 8;
     const smallSize = 9;
 
@@ -443,40 +445,56 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     drawLine();
 
     // ===== 表（右端の合計列なし）=====
-    const wLen = 64;
-    const wDia = 52;
+    const wLen = 70;      // 材長列を少し広く（mm表示のため）
+    const wDia = 50;
     const tableW = wLen + wDia*DIAS.length;
 
-    const hHead = 18;
-    const hRow = 16;
+    const hHead = 20;     // 少し高さUP
+    const hRow  = 16;
 
     const tx = M;
     const ty = y;
 
-    // 最下段は「径別合計重量(kg)」なので、行として1つ追加（hHeadで統一）
-    const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
+    const tableH = hHead + (hRow * LENGTHS_M.length) + hHead; // 最下段は合計kg
 
-    // 白塗り＋枠
+    // 外枠（太め）
     page.drawRectangle({
       x: tx, y: ty - tableH, width: tableW, height: tableH,
-      color: WHITE, borderColor: BLACK, borderWidth: 1,
+      color: WHITE,
+      borderColor: BLACK,
+      borderWidth: 2,         // ★外枠太く
       opacity: 1, borderOpacity: 1
     });
 
-    // 罫線
-    const lineH = (yy) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:0.5, color: BLACK });
-    const lineV = (xx) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:0.5, color: BLACK });
+    // ヘッダー背景（上）
+    page.drawRectangle({
+      x: tx, y: ty - hHead, width: tableW, height: hHead,
+      color: GRAY, borderWidth: 0
+    });
 
-    lineV(tx);
-    lineV(tx + wLen);
-    for (let i=0;i<DIAS.length;i++) lineV(tx + wLen + wDia*(i+1));
+    // 合計kg行の背景（下）
+    page.drawRectangle({
+      x: tx, y: (ty - tableH), width: tableW, height: hHead,
+      color: GRAY, borderWidth: 0
+    });
 
-    lineH(ty);
-    lineH(ty - hHead);
+    // 罫線（内側）
+    const lineH = (yy, thick=0.6) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:thick, color: BLACK });
+    const lineV = (xx, thick=0.6) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:thick, color: BLACK });
+
+    // 縦線
+    lineV(tx, 1);
+    lineV(tx + wLen, 1);
+    for (let i=0;i<DIAS.length;i++) lineV(tx + wLen + wDia*(i+1), 0.6);
+
+    // 横線
+    lineH(ty, 1);
+    lineH(ty - hHead, 1); // ヘッダー区切り
     for (let r=0;r<LENGTHS_M.length;r++){
-      lineH(ty - hHead - hRow*(r+1));
+      lineH(ty - hHead - hRow*(r+1), 0.5);
     }
-    lineH(ty - hHead - hRow*LENGTHS_M.length - hHead);
+    lineH(ty - hHead - hRow*LENGTHS_M.length, 1); // 合計kgの上を強め
+    lineH(ty - tableH, 1);
 
     // 中央寄せ（簡易）
     const centerText = (text, cx, cy, size) => {
@@ -484,19 +502,20 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP, color: BLACK });
     };
 
-    // ヘッダー
+    // ヘッダー（材長 + 径）
     const hy = ty - hHead/2;
     centerText("材長", tx + wLen/2, hy, headSize);
     for (let i=0;i<DIAS.length;i++){
       centerText(DIAS[i], tx + wLen + wDia*(i+0.5), hy, headSize);
     }
 
-    // 本体（セル＝本数、0は空欄）
+    // 本体（材長は mm を付ける）
     for (let r=0;r<LENGTHS_M.length;r++){
       const m = LENGTHS_M[r];
       const cy = ty - hHead - hRow*r - hRow/2;
 
-      centerText(`${Math.round(m*1000)}`, tx + wLen/2, cy, cellSize);
+      const mm = Math.round(m*1000);
+      centerText(`${mm}mm`, tx + wLen/2, cy, cellSize); // ★単位(mm)
 
       for (let c=0;c<DIAS.length;c++){
         const d = DIAS[c];
@@ -514,13 +533,12 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       if (kg !== 0) centerText(kg.toFixed(3), tx + wLen + wDia*(c+0.5), sy, headSize);
     }
 
-    // 表の下：総重量だけシンプルに
+    // 下：総重量
     let by = (ty - tableH) - 14;
     page.drawText(`総重量: ${grand.toFixed(3)} kg`, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
-    by -= (smallSize + 6);
     page.drawText("※ 表セルは本数（0は空欄）。最下段は径別合計重量（kg）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
 
-    // ===== 書き出し・共有 =====
+    // 出力
     const pdfBytes = await pdfDoc.save();
     const blob = new Blob([pdfBytes], { type:"application/pdf" });
     const url = URL.createObjectURL(blob);
