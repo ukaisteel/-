@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>重量計算（スマホ特化）</title>
+<title>重量計算</title>
 <style>
   :root{
     --bd:#2b2b2b;
@@ -22,9 +22,7 @@
     border-bottom:1px solid #ddd;
     padding:12px 12px 10px;
   }
-  .toprow{
-    display:flex; justify-content:space-between; align-items:center; gap:10px;
-  }
+  .toprow{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
   .brand{ font-weight:900; font-size:16px; }
   .date{ color:var(--muted); font-size:12px; }
 
@@ -41,7 +39,7 @@
     padding:12px 12px;
     border:1px solid var(--bd);
     border-radius: var(--radius);
-    font-size:16px;
+    font-size:16px; /* iOSズーム防止 */
     box-sizing:border-box;
     background:#fff;
   }
@@ -52,10 +50,7 @@
   .sectionTitle{ font-weight:900; font-size:16px; margin:10px 0 0; }
   .hint{ color:var(--muted); font-size:12px; margin:6px 0 0; }
 
-  .controls{
-    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
-    margin-top:10px;
-  }
+  .controls{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
   button{
     padding:12px 12px;
     border:1px solid var(--bd);
@@ -73,11 +68,7 @@
     overflow:hidden;
     background:#fff;
   }
-  .row{
-    display:flex; align-items:center; gap:10px;
-    padding:10px 12px;
-    border-top:1px solid #eee;
-  }
+  .row{ display:flex; align-items:center; gap:10px; padding:10px 12px; border-top:1px solid #eee; }
   .row:first-child{ border-top:none; }
   .row.head{ background:#fafafa; font-weight:900; }
   .len{ width:92px; flex:0 0 auto; font-weight:800; }
@@ -106,10 +97,7 @@
     padding:12px;
     background: var(--card);
   }
-  .summaryRow{
-    display:flex; justify-content:space-between; align-items:baseline;
-    padding:6px 0;
-  }
+  .summaryRow{ display:flex; justify-content:space-between; align-items:baseline; padding:6px 0; }
   .summaryRow strong{ font-size:16px; }
   .summaryRow span{ font-variant-numeric: tabular-nums; font-weight:900; }
 
@@ -149,7 +137,7 @@
 
   <div class="card">
     <label for="work">工事名</label>
-    <input id="work" type="text" placeholder="例：うんち" autocomplete="off">
+    <input id="work" type="text" placeholder="例：牧志テナントビル １壁" autocomplete="off">
 
     <label for="prime">元請名</label>
     <input id="prime" type="text" placeholder="例：〇〇建設株式会社" autocomplete="off">
@@ -170,10 +158,11 @@
       <button id="btnClear" type="button">本数クリア</button>
       <button id="btnPdfShare" type="button">PDF出力（A4 1枚 / 共有）</button>
     </div>
+    <div class="muted" style="margin-top:8px;">※PDFは日本語フォントを埋め込みます（初回は少しだけ時間がかかります）</div>
   </div>
 
   <div class="sectionTitle">重量計算</div>
-  <div class="hint">径を選んで、材長ごとに本数を入力してください（テンキー入力）。</div>
+  <div class="hint">径を選んで、材長ごとに本数を入力してください。</div>
 
   <div class="card" style="margin-top:10px;">
     <label for="dia">径（入力する列）</label>
@@ -202,374 +191,361 @@
   </details>
 </div>
 
-<!-- pdf-lib + fontkit（日本語フォント埋め込み必須） -->
+<!-- pdf-lib + fontkit -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
 <script>
-  // ===== 今日の日付 =====
-  (function setToday(){
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth()+1).padStart(2,'0');
-    const dd = String(d.getDate()).padStart(2,'0');
-    document.getElementById("today").textContent = `${yyyy}/${mm}/${dd}`;
-  })();
+/* =========================
+   1) 設定（JIS単位質量）
+========================= */
+const KG_PER_M = { D10:0.560, D13:0.995, D16:1.560, D19:2.250, D22:3.040, D25:3.980, D29:5.040, D32:6.310 };
+const DIAS = Object.keys(KG_PER_M);
 
-  // JIS（一般に使われる単位質量 kg/m）
-  const KG_PER_M = { D10:0.560, D13:0.995, D16:1.560, D19:2.250, D22:3.040, D25:3.980, D29:5.040, D32:6.310 };
-  const DIAS = Object.keys(KG_PER_M);
-  const LENGTHS_M = Array.from({length: ((12.0 - 3.5)/0.5)+1}, (_,i)=>+(3.5+0.5*i).toFixed(1));
+// 3.5m〜12.0m（0.5m刻み）
+const LENGTHS_M = Array.from({length: ((12.0 - 3.5)/0.5)+1}, (_,i)=>+(3.5+0.5*i).toFixed(1));
 
-  // マトリクス保持：qty[len_m][dia]
-  const qty = {};
-  for(const m of LENGTHS_M){
-    qty[m] = {};
-    for(const d of DIAS) qty[m][d] = 0;
-  }
+/* =========================
+   2) 状態（マトリクス保持）
+========================= */
+const qty = {};
+for (const m of LENGTHS_M) {
+  qty[m] = {};
+  for (const d of DIAS) qty[m][d] = 0;
+}
 
-  const diaSel = document.getElementById("dia");
-  const listEl = document.getElementById("list");
-  const kgpmEl = document.getElementById("kgpm");
-  const thisDiaLabelEl = document.getElementById("thisDiaLabel");
-  const thisDiaKgEl = document.getElementById("thisDiaKg");
-  const grandKgEl = document.getElementById("grandKg");
-  const diaGridEl = document.getElementById("diaGrid");
+/* =========================
+   3) DOM参照
+========================= */
+const diaSel = document.getElementById("dia");
+const listEl = document.getElementById("list");
+const kgpmEl = document.getElementById("kgpm");
+const thisDiaLabelEl = document.getElementById("thisDiaLabel");
+const thisDiaKgEl = document.getElementById("thisDiaKg");
+const grandKgEl = document.getElementById("grandKg");
+const diaGridEl = document.getElementById("diaGrid");
 
-  function fmt3(n){ return (Math.round(n*1000)/1000).toFixed(3); }
-  function mmLabel(m){ return `${Math.round(m*1000)}mm`; }
+/* =========================
+   4) ユーティリティ
+========================= */
+function fmt3(n){ return (Math.round(n*1000)/1000).toFixed(3); }
+function mmLabel(m){ return `${Math.round(m*1000)}mm`; }
+function todayStr(){
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${yyyy}/${mm}/${dd}`;
+}
+document.getElementById("today").textContent = todayStr();
 
-  diaSel.innerHTML = DIAS.map(d=>`<option value="${d}">${d}</option>`).join("");
-  diaSel.value = "D13";
+/* =========================
+   5) 計算
+========================= */
+function computeSums(){
+  const sumByDia = {};
+  for (const d of DIAS) sumByDia[d] = 0;
 
-  function computeSums(){
-    const sumByDia = {};
-    for(const d of DIAS) sumByDia[d] = 0;
-    for(const m of LENGTHS_M){
-      for(const d of DIAS){
-        const q = qty[m][d] || 0;
-        if(!q) continue;
-        sumByDia[d] += KG_PER_M[d] * m * q;
-      }
-    }
-    const grand = DIAS.reduce((acc,d)=>acc+sumByDia[d],0);
-    return { sumByDia, grand };
-  }
-
-  function renderList(){
-    const d = diaSel.value;
-    kgpmEl.textContent = `単位質量：${KG_PER_M[d]} kg/m`;
-    thisDiaLabelEl.textContent = `この径の重量（${d}）`;
-
-    listEl.innerHTML = `
-      <div class="row head">
-        <div class="len">材長</div>
-        <div class="qty">本数</div>
-        <div class="kg">重量</div>
-      </div>
-      ${LENGTHS_M.map(m=>{
-        const v = qty[m][d] || 0;
-        return `
-          <div class="row">
-            <div class="len">${mmLabel(m)}</div>
-            <div class="qty">
-              <input class="inp" type="number" inputmode="numeric" pattern="[0-9]*" min="0" step="1"
-                     data-l="${m}" value="${v ? v : ""}" placeholder="0">
-            </div>
-            <div class="kg" data-kg="${m}">0.000</div>
-          </div>
-        `;
-      }).join("")}
-    `;
-
-    updateRowKgs(d);
-    updateTotals();
-  }
-
-  function updateRowKgs(d){
-    LENGTHS_M.forEach(m=>{
+  for (const m of LENGTHS_M) {
+    for (const d of DIAS) {
       const q = qty[m][d] || 0;
-      const kg = KG_PER_M[d] * m * q;
-      const cell = listEl.querySelector(\`.kg[data-kg="\${m}"]\`);
-      if(cell) cell.textContent = fmt3(kg);
-    });
-  }
-
-  function updateTotals(){
-    const { sumByDia, grand } = computeSums();
-    const dNow = diaSel.value;
-
-    thisDiaKgEl.textContent = fmt3(sumByDia[dNow]);
-    grandKgEl.textContent = fmt3(grand);
-
-    diaGridEl.innerHTML = DIAS.map(d=>`
-      <div class="chip">
-        <div>${d}<br><small>${KG_PER_M[d]}kg/m</small></div>
-        <div>${fmt3(sumByDia[d])}kg</div>
-      </div>
-    `).join("");
-  }
-
-  listEl.addEventListener("input", (e)=>{
-    const inp = e.target.closest(".inp");
-    if(!inp) return;
-    const d = diaSel.value;
-    const m = inp.dataset.l;
-    const v = parseInt(inp.value || "0", 10) || 0;
-    qty[m][d] = v;
-    updateRowKgs(d);
-    updateTotals();
-  });
-
-  diaSel.addEventListener("change", ()=>renderList());
-
-  document.getElementById("btnClear").addEventListener("click", ()=>{
-    if(!confirm("本数を全部クリアしますか？")) return;
-    for(const m of LENGTHS_M){
-      for(const d of DIAS) qty[m][d] = 0;
-    }
-    renderList();
-  });
-
-  // ===== 日本語フォント（TTF）を読み込んでキャッシュ =====
-  // 1) まずローカル同梱（推奨）： ./NotoSansCJKjp-Regular.ttf
-  // 2) 無ければネットTTFへフォールバック
-  const FONT_URLS = [
-    "./NotoSansCJKjp-Regular.ttf",
-    "https://raw.githubusercontent.com/minoryorg/Noto-Sans-CJK-JP/master/fonts/NotoSansCJKjp-Regular.ttf"
-  ];
-  let cachedJpFontBytes = null;
-
-  async function getJpFontBytes(){
-    if (cachedJpFontBytes) return cachedJpFontBytes;
-
-    let lastErr = null;
-    for (const url of FONT_URLS) {
-      try {
-        const res = await fetch(url, { cache: "force-cache" });
-        if (!res.ok) throw new Error(`font fetch failed: ${res.status}`);
-        cachedJpFontBytes = await res.arrayBuffer();
-        return cachedJpFontBytes;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr || new Error("日本語フォント取得に失敗");
-  }
-
-  // ===== PDF（A4 1枚 / 共有・フォールバック付き / 文字化け対策済み）=====
-  document.getElementById("btnPdfShare").addEventListener("click", exportPdfShare);
-
-  function safeFilename(s){
-    return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
-  }
-
-  async function exportPdfShare(){
-    if (!window.PDFLib || !window.fontkit) {
-      alert("PDF機能の読み込みに失敗しました。通信がある状態でページを再読み込みしてください。");
-      return;
-    }
-
-    const work  = (document.getElementById("work")?.value || "").trim();
-    const prime = (document.getElementById("prime")?.value || "").trim();
-    const floor = (document.getElementById("floor")?.value || "").trim();
-    const detail= (document.getElementById("detail")?.value || "").trim();
-    const today = (document.getElementById("today")?.textContent || "").trim();
-    const selectedDia = (document.getElementById("dia")?.value || "D13").trim();
-
-    // フォントが取れないと日本語が崩れるので、必ず取れてからPDFを作る
-    let jpBytes;
-    try {
-      jpBytes = await getJpFontBytes();
-    } catch (e) {
-      console.error(e);
-      alert("日本語フォントの取得に失敗しました。\n電波が弱い場合はフォントをリポジトリに同梱すると確実です。");
-      return;
-    }
-
-    try {
-      const { PDFDocument } = window.PDFLib;
-
-      const { sumByDia, grand } = computeSums();
-
-      // 選択径の材長別明細（入力があるものだけ）
-      const selectedItems = [];
-      for (const m of LENGTHS_M) {
-        const q = qty[m][selectedDia] || 0;
-        if (!q) continue;
-        selectedItems.push({
-          len_mm: Math.round(m * 1000),
-          qty: q,
-          kg: KG_PER_M[selectedDia] * m * q
-        });
-      }
-
-      // ===== PDF作成 =====
-      const pdfDoc = await PDFDocument.create();
-      pdfDoc.registerFontkit(window.fontkit);
-
-      // ★ 文字化け対策：TTF + subset:false（安定優先）
-      const fontJP = await pdfDoc.embedFont(jpBytes, { subset: false });
-
-      const pageW = 595.28, pageH = 841.89; // A4 pt
-      const page = pdfDoc.addPage([pageW, pageH]);
-
-      const M = 32;
-      const contentW = pageW - M*2;
-      let y = pageH - M;
-
-      const lineHeight = (size)=> size + 5;
-
-      function drawText(str, x, size, opts = {}){
-        page.drawText(str, { x, y, size, font: fontJP, ...opts });
-        y -= lineHeight(size);
-      }
-
-      function drawWrapped(label, value, size=11){
-        // ラベル: 値 を折り返しで表示（A4でも崩れない）
-        const text = `${label}${value}`;
-        const maxWidth = contentW;
-        page.drawText(text, {
-          x: M, y, size, font: fontJP,
-          maxWidth,
-          lineHeight: size + 4
-        });
-        // だいたいの行数を見積もってyを下げる（厳密でなくても1ページ内に収める設計）
-        const approxCharsPerLine = Math.max(10, Math.floor(maxWidth / (size * 0.9)));
-        const lines = Math.max(1, Math.ceil(text.length / approxCharsPerLine));
-        y -= lines * (size + 4) + 2;
-      }
-
-      function hr(){
-        y -= 6;
-        page.drawLine({ start: { x: M, y }, end: { x: pageW - M, y }, thickness: 1 });
-        y -= 10;
-      }
-
-      // ===== ヘッダー =====
-      page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y, size: 13, font: fontJP });
-      page.drawText(today ? `日付: ${today}` : "", { x: pageW - M - 170, y: y - 18, size: 10, font: fontJP });
-
-      drawText("重量計算（A4 1枚）", M, 16);
-      hr();
-
-      // ===== 基本情報（折り返し）=====
-      drawWrapped("工事名: ", work || "（未入力）");
-      drawWrapped("元請名: ", prime || "（未入力）");
-      drawWrapped("積算内訳: ", (floor || "") + (detail ? " / " + detail : "") || "（未入力）");
-      hr();
-
-      // ===== 総重量 =====
-      drawText(`総重量: ${grand.toFixed(3)} kg`, M, 14);
-      y -= 4;
-
-      // ===== 径別合計（2列×4行）=====
-      drawText("径別合計（kg）", M, 12);
-
-      const col1x = M;
-      const col2x = Math.floor(pageW / 2) + 10;
-      const rowH = 16;
-
-      let rowY = y;
-      for (let i = 0; i < DIAS.length; i++) {
-        const d = DIAS[i];
-        const txt = `${d}  ${sumByDia[d].toFixed(3)} kg`;
-        const isLeft = (i % 2 === 0);
-        const x = isLeft ? col1x : col2x;
-        page.drawText(txt, { x, y: rowY, size: 11, font: fontJP });
-        if (!isLeft) rowY -= rowH;
-      }
-      y = rowY - 12;
-      hr();
-
-      // ===== 明細（選択径のみ / 入る分だけ）=====
-      drawText(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, M, 12);
-
-      const tx1 = M, tx2 = M + 120, tx3 = M + 220;
-      page.drawText("材長(mm)", { x: tx1, y, size: 10, font: fontJP });
-      page.drawText("本数",     { x: tx2, y, size: 10, font: fontJP });
-      page.drawText("重量(kg)", { x: tx3, y, size: 10, font: fontJP });
-      y -= 12;
-
-      page.drawLine({ start: { x: M, y }, end: { x: pageW - M, y }, thickness: 1 });
-      y -= 10;
-
-      const bottomLimit = M + 24;
-      const itemRowH = 14;
-      const maxRows = Math.max(0, Math.floor((y - bottomLimit) / itemRowH));
-      const rowsToDraw = selectedItems.slice(0, Math.max(0, maxRows - 1));
-
-      for (const it of rowsToDraw) {
-        page.drawText(String(it.len_mm), { x: tx1, y, size: 11, font: fontJP });
-        page.drawText(String(it.qty),    { x: tx2, y, size: 11, font: fontJP });
-        page.drawText(it.kg.toFixed(3),  { x: tx3, y, size: 11, font: fontJP });
-        y -= itemRowH;
-      }
-
-      if (selectedItems.length === 0) {
-        page.drawText("（この径の入力はありません）", { x: M, y, size: 11, font: fontJP });
-        y -= itemRowH;
-      } else if (selectedItems.length > rowsToDraw.length) {
-        page.drawText(`…他 ${selectedItems.length - rowsToDraw.length} 行（A4 1枚のため省略）`, { x: M, y, size: 10, font: fontJP });
-        y -= itemRowH;
-      }
-
-      page.drawText("※ 明細は選択中の径のみ表示。全径の合計は「径別合計」を参照。", {
-        x: M, y: M + 8, size: 9, font: fontJP
-      });
-
-      // ===== 書き出し =====
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const blobUrl = URL.createObjectURL(blob);
-
-      const filename = `${safeFilename(work)}_${today || "date"}.pdf`;
-      let shared = false;
-
-      // iOSは「files共有」が通ることが多いが、通らない機種もあるので両対応
-      if (navigator.share) {
-        try {
-          const file = new File([blob], filename, { type: "application/pdf" });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ title: "重量計算 PDF（A4 1枚）", files: [file] });
-            shared = true;
-          }
-        } catch (_) {}
-
-        if (!shared) {
-          try {
-            await navigator.share({ title: "重量計算 PDF（A4 1枚）", url: blobUrl });
-            shared = true;
-          } catch (_) {}
-        }
-      }
-
-      // 共有できない/失敗 → PDFを開く + ダウンロード
-      if (!shared) {
-        const opened = window.open(blobUrl, "_blank");
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-
-        alert(opened
-          ? "PDFを開きました。PDF画面の共有ボタンから別アプリへ出力できます。"
-          : "PDFを開けなかったためダウンロードしました。「ファイル」から開いて共有してください。"
-        );
-      }
-
-      setTimeout(()=>URL.revokeObjectURL(blobUrl), 15000);
-
-    } catch (e) {
-      console.error(e);
-      alert("PDF出力に失敗しました。\n理由: " + (e?.message || e));
+      if (!q) continue;
+      sumByDia[d] += KG_PER_M[d] * m * q;
     }
   }
+  const grand = DIAS.reduce((acc,d)=>acc+sumByDia[d],0);
+  return { sumByDia, grand };
+}
 
-  // 初期描画
+function updateRowKgs(d){
+  for (const m of LENGTHS_M) {
+    const q = qty[m][d] || 0;
+    const kg = KG_PER_M[d] * m * q;
+    const cell = listEl.querySelector(`.kg[data-kg="${m}"]`);
+    if (cell) cell.textContent = fmt3(kg);
+  }
+}
+
+function updateTotals(){
+  const { sumByDia, grand } = computeSums();
+  const dNow = diaSel.value;
+
+  thisDiaLabelEl.textContent = `この径の重量（${dNow}）`;
+  thisDiaKgEl.textContent = fmt3(sumByDia[dNow]);
+  grandKgEl.textContent = fmt3(grand);
+
+  diaGridEl.innerHTML = DIAS.map(d=>`
+    <div class="chip">
+      <div>${d}<br><small>${KG_PER_M[d]}kg/m</small></div>
+      <div>${fmt3(sumByDia[d])}kg</div>
+    </div>
+  `).join("");
+}
+
+/* =========================
+   6) 画面描画（径切替）
+========================= */
+function renderList(){
+  const d = diaSel.value;
+  kgpmEl.textContent = `単位質量：${KG_PER_M[d]} kg/m`;
+
+  listEl.innerHTML = `
+    <div class="row head">
+      <div class="len">材長</div>
+      <div class="qty">本数</div>
+      <div class="kg">重量</div>
+    </div>
+    ${LENGTHS_M.map(m=>{
+      const v = qty[m][d] || 0;
+      return `
+        <div class="row">
+          <div class="len">${mmLabel(m)}</div>
+          <div class="qty">
+            <input class="inp" type="number" inputmode="numeric" min="0" step="1"
+                   data-l="${m}" value="${v ? v : ""}" placeholder="0">
+          </div>
+          <div class="kg" data-kg="${m}">0.000</div>
+        </div>
+      `;
+    }).join("")}
+  `;
+
+  updateRowKgs(d);
+  updateTotals();
+}
+
+/* 入力イベント（今見てる径に対して更新） */
+listEl.addEventListener("input", (e)=>{
+  const inp = e.target.closest(".inp");
+  if (!inp) return;
+
+  const d = diaSel.value;
+  const m = inp.dataset.l;
+  const v = parseInt(inp.value || "0", 10) || 0;
+
+  qty[m][d] = v;
+  updateRowKgs(d);
+  updateTotals();
+});
+
+/* 径切替 */
+diaSel.addEventListener("change", renderList);
+
+/* 初期：径リスト */
+diaSel.innerHTML = DIAS.map(d=>`<option value="${d}">${d}</option>`).join("");
+diaSel.value = "D13";
+
+/* クリア */
+document.getElementById("btnClear").addEventListener("click", ()=>{
+  if(!confirm("本数を全部クリアしますか？")) return;
+  for (const m of LENGTHS_M) for (const d of DIAS) qty[m][d] = 0;
   renderList();
+});
+
+/* =========================
+   7) PDF（日本語文字化けゼロ版）
+   - TTFを埋め込み
+   - subset:false（安定優先）
+========================= */
+const FONT_URLS = [
+  "./NotoSansCJKjp-Regular.ttf", // ←同梱できたら最強
+  "https://raw.githubusercontent.com/minoryorg/Noto-Sans-CJK-JP/master/fonts/NotoSansCJKjp-Regular.ttf"
+];
+let cachedFontBytes = null;
+
+async function getFontBytes(){
+  if (cachedFontBytes) return cachedFontBytes;
+  let lastErr = null;
+
+  for (const url of FONT_URLS) {
+    try {
+      const r = await fetch(url, { cache: "force-cache" });
+      if (!r.ok) throw new Error(`font fetch failed ${r.status}`);
+      cachedFontBytes = await r.arrayBuffer();
+      return cachedFontBytes;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("font fetch failed");
+}
+
+function safeFilename(s){
+  return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+}
+
+document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
+  if (!window.PDFLib || !window.fontkit) {
+    alert("PDF機能の読み込みに失敗しました。通信がある状態で再読み込みしてください。");
+    return;
+  }
+
+  // フォント取得（失敗したら“ぐちゃぐちゃPDF”を出さない）
+  let fontBytes;
+  try {
+    fontBytes = await getFontBytes();
+  } catch (e) {
+    console.error(e);
+    alert("日本語フォントの取得に失敗しました。\n電波が弱い場合はフォント同梱が確実です。");
+    return;
+  }
+
+  const work  = (document.getElementById("work").value || "").trim();
+  const prime = (document.getElementById("prime").value || "").trim();
+  const floor = (document.getElementById("floor").value || "").trim();
+  const detail= (document.getElementById("detail").value || "").trim();
+  const today = document.getElementById("today").textContent.trim();
+  const selectedDia = diaSel.value;
+
+  const { sumByDia, grand } = computeSums();
+
+  // 選択径の材長別明細
+  const items = [];
+  for (const m of LENGTHS_M) {
+    const q = qty[m][selectedDia] || 0;
+    if (!q) continue;
+    items.push({ len_mm: Math.round(m*1000), qty: q, kg: KG_PER_M[selectedDia]*m*q });
+  }
+
+  try {
+    const { PDFDocument } = window.PDFLib;
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(window.fontkit);
+    const fontJP = await pdfDoc.embedFont(fontBytes, { subset: false });
+
+    const pageW = 595.28, pageH = 841.89;
+    const page = pdfDoc.addPage([pageW, pageH]);
+    const M = 32;
+    const contentW = pageW - M*2;
+    let y = pageH - M;
+
+    const hr = () => {
+      y -= 6;
+      page.drawLine({ start:{x:M,y}, end:{x:pageW-M,y}, thickness:1 });
+      y -= 10;
+    };
+
+    const draw = (text, size=11, x=M) => {
+      page.drawText(text, { x, y, size, font: fontJP });
+      y -= (size + 5);
+    };
+
+    const drawWrap = (text, size=11) => {
+      page.drawText(text, { x:M, y, size, font: fontJP, maxWidth: contentW, lineHeight: size+4 });
+      // ざっくり行数見積（A4 1枚固定なのでこれで十分安定）
+      const approx = Math.max(12, Math.floor(contentW / (size*0.9)));
+      const lines = Math.max(1, Math.ceil(text.length / approx));
+      y -= lines*(size+4) + 2;
+    };
+
+    // ヘッダー
+    page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y, size: 13, font: fontJP });
+    page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y-18, size: 10, font: fontJP });
+
+    draw("重量計算（A4 1枚）", 16);
+    hr();
+
+    drawWrap(`工事名: ${work || "（未入力）"}`, 11);
+    drawWrap(`元請名: ${prime || "（未入力）"}`, 11);
+    drawWrap(`積算内訳: ${(floor + (detail ? " / " + detail : "")) || "（未入力）"}`, 11);
+    hr();
+
+    draw(`総重量: ${grand.toFixed(3)} kg`, 14);
+    y -= 4;
+
+    draw("径別合計（kg）", 12);
+    const col1x=M, col2x=Math.floor(pageW/2)+10, rowH=16;
+    let rowY=y;
+    for(let i=0;i<DIAS.length;i++){
+      const d=DIAS[i];
+      const t=`${d}  ${sumByDia[d].toFixed(3)} kg`;
+      const x=(i%2===0)?col1x:col2x;
+      page.drawText(t,{x,y:rowY,size:11,font:fontJP});
+      if(i%2===1) rowY-=rowH;
+    }
+    y = rowY - 12;
+    hr();
+
+    draw(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, 12);
+
+    const tx1=M, tx2=M+120, tx3=M+220;
+    page.drawText("材長(mm)", {x:tx1,y,size:10,font:fontJP});
+    page.drawText("本数",     {x:tx2,y,size:10,font:fontJP});
+    page.drawText("重量(kg)", {x:tx3,y,size:10,font:fontJP});
+    y-=12;
+    page.drawLine({start:{x:M,y}, end:{x:pageW-M,y}, thickness:1});
+    y-=10;
+
+    // 1枚に入る分だけ描画
+    const bottomLimit = M + 24;
+    const itemH = 14;
+    const maxRows = Math.max(0, Math.floor((y - bottomLimit) / itemH));
+    const drawRows = items.slice(0, Math.max(0, maxRows - 1));
+
+    for(const it of drawRows){
+      page.drawText(String(it.len_mm), {x:tx1,y,size:11,font:fontJP});
+      page.drawText(String(it.qty),    {x:tx2,y,size:11,font:fontJP});
+      page.drawText(it.kg.toFixed(3),  {x:tx3,y,size:11,font:fontJP});
+      y -= itemH;
+    }
+
+    if(items.length===0){
+      page.drawText("（この径の入力はありません）", {x:M,y,size:11,font:fontJP});
+      y -= itemH;
+    } else if(items.length>drawRows.length){
+      page.drawText(`…他 ${items.length-drawRows.length} 行（A4 1枚のため省略）`, {x:M,y,size:10,font:fontJP});
+      y -= itemH;
+    }
+
+    page.drawText("※ 明細は選択中の径のみ表示。全径の合計は「径別合計」を参照。", {
+      x:M, y:M+8, size:9, font:fontJP
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes], { type:"application/pdf" });
+    const url = URL.createObjectURL(blob);
+
+    const filename = `${safeFilename(work)}_${today}.pdf`;
+    let shared=false;
+
+    if(navigator.share){
+      try{
+        const file = new File([blob], filename, {type:"application/pdf"});
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          await navigator.share({title:"重量計算 PDF", files:[file]});
+          shared=true;
+        }
+      }catch(_){}
+
+      if(!shared){
+        try{
+          await navigator.share({title:"重量計算 PDF", url});
+          shared=true;
+        }catch(_){}
+      }
+    }
+
+    if(!shared){
+      const opened = window.open(url, "_blank");
+      const a=document.createElement("a");
+      a.href=url; a.download=filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      alert(opened
+        ? "PDFを開きました。PDF画面の共有から別アプリへ出力できます。"
+        : "PDFをダウンロードしました。「ファイル」から開いて共有してください。"
+      );
+    }
+
+    setTimeout(()=>URL.revokeObjectURL(url), 15000);
+
+  } catch (e) {
+    console.error(e);
+    alert("PDF出力に失敗しました。\n理由: " + (e?.message || e));
+  }
+});
+
+/* 初期描画 */
+renderList();
 </script>
 </body>
 </html>
