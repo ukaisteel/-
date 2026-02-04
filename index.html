@@ -100,7 +100,7 @@
     padding:12px 10px;
     border:1px solid var(--bd);
     border-radius: var(--radius);
-    font-size:18px; /* 押しやすい */
+    font-size:18px;
     text-align:center;
     box-sizing:border-box;
   }
@@ -126,7 +126,6 @@
   .summaryRow strong{ font-size:16px; }
   .summaryRow span{ font-variant-numeric: tabular-nums; font-weight:900; }
 
-  /* 径別合計（折りたたみ） */
   details{
     margin-top:10px;
     border:1px solid #ddd;
@@ -192,7 +191,7 @@
 
     <div class="controls">
       <button id="btnClear" type="button">本数クリア</button>
-      <button id="btnPdfShare" type="button">PDF出力（共有）</button>
+      <button id="btnPdfShare" type="button">PDF出力（A4 1枚 / 共有）</button>
     </div>
   </div>
 
@@ -226,11 +225,11 @@
   </details>
 </div>
 
-<!-- PDF生成ライブラリ -->
+<!-- PDF生成ライブラリ（メインscriptより上に置く） -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 
 <script>
-  // 今日の日付（端末ローカル）
+  // ===== 基本（今日の日付）=====
   (function setToday(){
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -246,7 +245,7 @@
   // 長さ（m）→ 表示はmm
   const LENGTHS_M = Array.from({length: ((12.0 - 3.5)/0.5)+1}, (_,i)=>+(3.5+0.5*i).toFixed(1));
 
-  // データ保持：qty[len_m][dia] を持つ（マトリクスの中身は維持）
+  // マトリクス保持：qty[len_m][dia]
   const qty = {};
   for(const m of LENGTHS_M){
     qty[m] = {};
@@ -264,9 +263,23 @@
   function fmt3(n){ return (Math.round(n*1000)/1000).toFixed(3); }
   function mmLabel(m){ return `${Math.round(m*1000)}mm`; }
 
-  // 径セレクト初期化
   diaSel.innerHTML = DIAS.map(d=>`<option value="${d}">${d}</option>`).join("");
   diaSel.value = "D13";
+
+  function computeSums(){
+    const sumByDia = {};
+    for(const d of DIAS) sumByDia[d] = 0;
+
+    for(const m of LENGTHS_M){
+      for(const d of DIAS){
+        const q = qty[m][d] || 0;
+        if(!q) continue;
+        sumByDia[d] += KG_PER_M[d] * m * q;
+      }
+    }
+    const grand = DIAS.reduce((acc,d)=>acc+sumByDia[d],0);
+    return { sumByDia, grand };
+  }
 
   function renderList(){
     const d = diaSel.value;
@@ -307,32 +320,13 @@
     });
   }
 
-  function computeSums(){
-    const sumByDia = {};
-    for(const d of DIAS) sumByDia[d] = 0;
-
-    for(const m of LENGTHS_M){
-      for(const d of DIAS){
-        const q = qty[m][d] || 0;
-        if(!q) continue;
-        sumByDia[d] += KG_PER_M[d] * m * q;
-      }
-    }
-    const grand = DIAS.reduce((acc,d)=>acc+sumByDia[d],0);
-    return { sumByDia, grand };
-  }
-
   function updateTotals(){
     const { sumByDia, grand } = computeSums();
 
-    // この径
     const dNow = diaSel.value;
     thisDiaKgEl.textContent = fmt3(sumByDia[dNow]);
-
-    // 総重量
     grandKgEl.textContent = fmt3(grand);
 
-    // 径別一覧
     diaGridEl.innerHTML = DIAS.map(d=>`
       <div class="chip">
         <div>${d}<br><small>${KG_PER_M[d]}kg/m</small></div>
@@ -341,7 +335,6 @@
     `).join("");
   }
 
-  // 入力イベント：表示中の径だけ反映（でも内部はマトリクス保持）
   listEl.addEventListener("input", (e)=>{
     const inp = e.target.closest(".inp");
     if(!inp) return;
@@ -355,7 +348,6 @@
 
   diaSel.addEventListener("change", ()=>renderList());
 
-  // クリア（本数のみ）
   document.getElementById("btnClear").addEventListener("click", ()=>{
     if(!confirm("本数を全部クリアしますか？")) return;
     for(const m of LENGTHS_M){
@@ -364,10 +356,16 @@
     renderList();
   });
 
-  // ===== PDF出力（A4 1枚 / 共有） =====
+  // ===== PDF出力（A4 1枚 / 共有・フォールバック付き）=====
   document.getElementById("btnPdfShare").addEventListener("click", exportPdfShare);
 
   async function exportPdfShare() {
+    // pdf-lib読み込み確認
+    if (!window.PDFLib) {
+      alert("PDFライブラリ(pdf-lib)が読み込めていません。\n通信がある状態でページを再読み込みしてください。");
+      return;
+    }
+
     try {
       const { PDFDocument, StandardFonts } = window.PDFLib;
 
@@ -376,7 +374,6 @@
       const floor = (document.getElementById("floor")?.value || "").trim();
       const detail= (document.getElementById("detail")?.value || "").trim();
       const today = (document.getElementById("today")?.textContent || "").trim();
-
       const selectedDia = (document.getElementById("dia")?.value || "D13").trim();
 
       const { sumByDia, grand } = computeSums();
@@ -393,14 +390,14 @@
         });
       }
 
-      // ===== PDF（A4 1枚固定） =====
+      // ===== PDF（A4 1枚固定）=====
       const pdfDoc = await PDFDocument.create();
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
       const pageW = 595.28, pageH = 841.89; // A4 portrait
       const page = pdfDoc.addPage([pageW, pageH]);
 
-      const M = 32; // margin
+      const M = 32;
       let y = pageH - M;
 
       const line = (text, x, size = 11) => {
@@ -414,7 +411,7 @@
       };
       const ell = (s, max = 44) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
 
-      // ヘッダー（右上に会社名＆日付）
+      // ヘッダー
       page.drawText("鵜飼鉄筋工業", { x: pageW - M - 110, y, size: 13, font });
       page.drawText(today ? `日付: ${today}` : "", { x: pageW - M - 150, y: y - 18, size: 10, font });
 
@@ -450,7 +447,7 @@
       y = rowY - 12;
       hr();
 
-      // 選択径の材長別明細（入る分だけ、溢れたら省略表示）
+      // 選択径 明細（入る分だけ、溢れたら省略）
       line(`材長別 明細（${selectedDia} / ${KG_PER_M[selectedDia]} kg/m）`, M, 12);
 
       const tx1 = M, tx2 = M + 120, tx3 = M + 220, tx4 = pageW - M - 90;
@@ -467,7 +464,6 @@
       const bottomLimit = M + 20;
       const itemRowH = 14;
       const maxRows = Math.max(0, Math.floor((y - bottomLimit) / itemRowH));
-
       const rowsToDraw = selectedItems.slice(0, Math.max(0, maxRows - 1));
 
       for (const it of rowsToDraw) {
@@ -485,42 +481,64 @@
         y -= itemRowH;
       }
 
-      // 注記（最下部）
       page.drawText("※ 明細は選択中の径のみ表示。全径の合計は「径別合計」を参照。", {
         x: M, y: M + 6, size: 9, font
       });
 
-      // 書き出し＆共有
+      // ===== 書き出し =====
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
 
       const safeWork = (work || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
       const filename = `${safeWork}_${today || "date"}.pdf`;
-      const file = new File([blob], filename, { type: "application/pdf" });
 
-      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-        await navigator.share({
-          title: "重量計算 PDF（A4 1枚）",
-          text: "PDFを共有します",
-          files: [file]
-        });
-        return;
+      // ===== 共有（失敗しても必ずPDFを開く）=====
+      let shared = false;
+
+      if (navigator.share) {
+        // files共有
+        try {
+          const file = new File([blob], filename, { type: "application/pdf" });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ title: "重量計算 PDF（A4 1枚）", files: [file] });
+            shared = true;
+          }
+        } catch (_) {}
+
+        // url共有（filesが無理でもいける端末あり）
+        if (!shared) {
+          try {
+            await navigator.share({ title: "重量計算 PDF（A4 1枚）", url: blobUrl });
+            shared = true;
+          } catch (_) {}
+        }
       }
 
-      // フォールバック：ダウンロード
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // 共有できない/失敗 → PDFを開く + ダウンロード
+      if (!shared) {
+        const opened = window.open(blobUrl, "_blank");
+        // ポップアップブロックや環境差で開けない時もあるのでDLも同時に実行
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
 
-      alert("この端末では直接共有できないため、PDFをダウンロードしました。ファイルから共有してください。");
+        if (!opened) {
+          alert("PDFを新しいタブで開けませんでした。\nダウンロードしたPDFを「ファイル」から開いて共有してください。");
+        } else {
+          alert("PDFを開きました。\nPDF画面の共有ボタンから別アプリへ出力できます。");
+        }
+      }
+
+      // 後片付け
+      setTimeout(()=>URL.revokeObjectURL(blobUrl), 10000);
+
     } catch (e) {
       console.error(e);
-      alert("PDF出力に失敗しました。もう一度試してください。");
+      alert("PDF出力に失敗しました。\n理由: " + (e?.message || e));
     }
   }
 
