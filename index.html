@@ -12,20 +12,71 @@
     --card:#f6f6f6;
     --radius:14px;
   }
+
   body{
     font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
-    margin:0; background:var(--bg);
-  }
-  .topbar{
-    position:sticky; top:0; z-index:50;
+    margin:0;
     background:var(--bg);
-    border-bottom:1px solid #ddd;
-    padding:12px 12px 10px;
+    padding-top: 112px; /* fixed topbar 分 */
   }
-  .toprow{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  .brand{ font-weight:900; font-size:16px; }
-  .date{ color:var(--muted); font-size:12px; }
 
+  /* ====== 固定ヘッダー（スクロールで縮小） ====== */
+  .topbar{
+    position:fixed;
+    top:0; left:0;
+    width:100%;
+    z-index:999;
+    background:#fff;
+    border-bottom:1px solid #ddd;
+    padding:14px 12px 10px;
+    transition: padding .25s ease, box-shadow .25s ease;
+  }
+  .topbar.shrink{
+    padding:6px 12px 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  }
+
+  .toprow{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+  }
+
+  .brandWrap{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+  }
+
+  /* ロゴ：logo.png を同じフォルダに置いてね */
+  .logo{
+    height:40px;
+    width:auto;
+    transition: height .25s ease;
+    display:block;
+  }
+  .topbar.shrink .logo{ height:26px; }
+
+  .brand{
+    font-weight:900;
+    font-size:18px;
+    transition: font-size .25s ease;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width: 52vw;
+  }
+  .topbar.shrink .brand{ font-size:14px; }
+
+  .date{
+    color:var(--muted);
+    font-size:12px;
+    white-space:nowrap;
+  }
+
+  /* ====== 共通UI ====== */
   .card{
     margin-top:10px;
     border:1px solid #ddd;
@@ -34,15 +85,17 @@
     background:#fff;
   }
   label{ display:block; font-size:12px; color:var(--muted); margin:8px 0 6px; }
+
   input[type="text"], select{
     width:100%;
     padding:12px 12px;
     border:1px solid var(--bd);
     border-radius: var(--radius);
-    font-size:16px;
+    font-size:16px; /* iOSズーム防止 */
     box-sizing:border-box;
     background:#fff;
   }
+
   .inline{ display:flex; gap:10px; align-items:center; }
   .inline .floor{ width:38%; min-width:120px; }
   .inline .detail{ flex:1; }
@@ -73,6 +126,7 @@
   .row.head{ background:#fafafa; font-weight:900; }
   .len{ width:92px; flex:0 0 auto; font-weight:800; }
   .qty{ flex:1; display:flex; align-items:center; justify-content:center; }
+
   input[type="number"]{
     width:140px;
     padding:12px 10px;
@@ -82,12 +136,14 @@
     text-align:center;
     box-sizing:border-box;
   }
+
   .kg{
     width:92px; flex:0 0 auto;
     text-align:right;
     font-variant-numeric: tabular-nums;
     font-weight:900;
   }
+
   .muted{ color:var(--muted); font-size:12px; }
 
   .summary{
@@ -129,9 +185,14 @@
 </head>
 
 <body>
+<!-- ====== ヘッダー（固定＋縮小） ====== -->
 <div class="topbar">
   <div class="toprow">
-    <div class="brand">鵜飼鉄筋工業</div>
+    <div class="brandWrap">
+      <!-- ロゴ画像を同じ階層に logo.png で置いてね -->
+      <img src="logo.png" alt="ロゴ" class="logo" onerror="this.style.display='none'">
+      <div class="brand">鵜飼鉄筋工業</div>
+    </div>
     <div id="today" class="date"></div>
   </div>
 
@@ -171,6 +232,7 @@
   </div>
 </div>
 
+<!-- ====== 本体 ====== -->
 <div style="padding: 0 12px 18px;">
   <div class="list" id="list"></div>
 
@@ -191,10 +253,24 @@
   </details>
 </div>
 
+<!-- PDF生成 -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
 
 <script>
+/* =========================
+   0) ヘッダー縮小
+========================= */
+(function(){
+  const topbar = document.querySelector(".topbar");
+  const onScroll = () => {
+    if (window.scrollY > 40) topbar.classList.add("shrink");
+    else topbar.classList.remove("shrink");
+  };
+  window.addEventListener("scroll", onScroll, { passive:true });
+  onScroll();
+})();
+
 /* =========================
    1) 設定（JIS単位質量）
 ========================= */
@@ -371,9 +447,6 @@ async function getFontBytes(){
 
 /* =========================
    8) PDF（数量明細：マトリクス表）
-   - 外枠太め
-   - ヘッダー/合計kg行を薄グレー背景
-   - 材長は「xxxxmm」
 ========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
@@ -402,22 +475,21 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     const { PDFDocument, rgb } = window.PDFLib;
     const BLACK = rgb(0,0,0);
     const WHITE = rgb(1,1,1);
-    const GRAY  = rgb(0.92, 0.92, 0.92); // ヘッダー背景
+    const GRAY  = rgb(0.92, 0.92, 0.92);
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(window.fontkit);
     const fontJP = await pdfDoc.embedFont(fontBytes, { subset: false });
 
-    const pageW = 595.28, pageH = 841.89; // A4
+    const pageW = 595.28, pageH = 841.89;
     const page = pdfDoc.addPage([pageW, pageH]);
 
-    // レイアウト
     const M = 22;
     let y = pageH - M;
 
     const titleSize = 14;
     const infoSize  = 10;
-    const headSize  = 9;   // 少しUP
+    const headSize  = 9;
     const cellSize  = 8;
     const smallSize = 9;
 
@@ -426,7 +498,6 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       y -= 12;
     };
 
-    // ヘッダー
     page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y: y - 10, size: 12, font: fontJP, color: BLACK });
     page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y - 28, size: 9, font: fontJP, color: BLACK });
 
@@ -444,78 +515,60 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     y -= 6;
     drawLine();
 
-    // ===== 表（右端の合計列なし）=====
-    const wLen = 70;      // 材長列を少し広く（mm表示のため）
+    const wLen = 70;
     const wDia = 50;
     const tableW = wLen + wDia*DIAS.length;
 
-    const hHead = 20;     // 少し高さUP
+    const hHead = 20;
     const hRow  = 16;
 
     const tx = M;
     const ty = y;
+    const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
 
-    const tableH = hHead + (hRow * LENGTHS_M.length) + hHead; // 最下段は合計kg
-
-    // 外枠（太め）
+    // 外枠太め + 白塗り
     page.drawRectangle({
       x: tx, y: ty - tableH, width: tableW, height: tableH,
-      color: WHITE,
-      borderColor: BLACK,
-      borderWidth: 2,         // ★外枠太く
-      opacity: 1, borderOpacity: 1
+      color: WHITE, borderColor: BLACK, borderWidth: 2
     });
 
-    // ヘッダー背景（上）
-    page.drawRectangle({
-      x: tx, y: ty - hHead, width: tableW, height: hHead,
-      color: GRAY, borderWidth: 0
-    });
+    // ヘッダー背景
+    page.drawRectangle({ x: tx, y: ty - hHead, width: tableW, height: hHead, color: GRAY });
+    // 合計kg行背景
+    page.drawRectangle({ x: tx, y: (ty - tableH), width: tableW, height: hHead, color: GRAY });
 
-    // 合計kg行の背景（下）
-    page.drawRectangle({
-      x: tx, y: (ty - tableH), width: tableW, height: hHead,
-      color: GRAY, borderWidth: 0
-    });
-
-    // 罫線（内側）
     const lineH = (yy, thick=0.6) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:thick, color: BLACK });
     const lineV = (xx, thick=0.6) => page.drawLine({ start:{x:xx, y:ty}, end:{x:xx, y:ty-tableH}, thickness:thick, color: BLACK });
 
-    // 縦線
     lineV(tx, 1);
     lineV(tx + wLen, 1);
     for (let i=0;i<DIAS.length;i++) lineV(tx + wLen + wDia*(i+1), 0.6);
 
-    // 横線
     lineH(ty, 1);
-    lineH(ty - hHead, 1); // ヘッダー区切り
-    for (let r=0;r<LENGTHS_M.length;r++){
-      lineH(ty - hHead - hRow*(r+1), 0.5);
-    }
-    lineH(ty - hHead - hRow*LENGTHS_M.length, 1); // 合計kgの上を強め
+    lineH(ty - hHead, 1);
+    for (let r=0;r<LENGTHS_M.length;r++) lineH(ty - hHead - hRow*(r+1), 0.5);
+    lineH(ty - hHead - hRow*LENGTHS_M.length, 1);
     lineH(ty - tableH, 1);
 
-    // 中央寄せ（簡易）
     const centerText = (text, cx, cy, size) => {
       const approxW = text.length * size * 0.55;
       page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP, color: BLACK });
     };
 
-    // ヘッダー（材長 + 径）
+    // ヘッダー文字
     const hy = ty - hHead/2;
     centerText("材長", tx + wLen/2, hy, headSize);
     for (let i=0;i<DIAS.length;i++){
       centerText(DIAS[i], tx + wLen + wDia*(i+0.5), hy, headSize);
     }
 
-    // 本体（材長は mm を付ける）
+    // 本体
     for (let r=0;r<LENGTHS_M.length;r++){
       const m = LENGTHS_M[r];
       const cy = ty - hHead - hRow*r - hRow/2;
 
       const mm = Math.round(m*1000);
-      centerText(`${mm}mm`, tx + wLen/2, cy, cellSize); // ★単位(mm)
+      centerText(`${mm}mm`, tx + wLen/2, cy, cellSize);
 
       for (let c=0;c<DIAS.length;c++){
         const d = DIAS[c];
@@ -524,7 +577,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       }
     }
 
-    // 最下段：径別 合計重量（kg）
+    // 合計kg行
     const sy = ty - hHead - hRow*LENGTHS_M.length - hHead/2;
     centerText("合計kg", tx + wLen/2, sy, headSize);
     for (let c=0;c<DIAS.length;c++){
@@ -533,12 +586,11 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       if (kg !== 0) centerText(kg.toFixed(3), tx + wLen + wDia*(c+0.5), sy, headSize);
     }
 
-    // 下：総重量
+    // 総重量
     let by = (ty - tableH) - 14;
     page.drawText(`総重量: ${grand.toFixed(3)} kg`, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
     page.drawText("※ 表セルは本数（0は空欄）。最下段は径別合計重量（kg）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
 
-    // 出力
     const pdfBytes = await pdfDoc.save();
     const blob = new Blob([pdfBytes], { type:"application/pdf" });
     const url = URL.createObjectURL(blob);
