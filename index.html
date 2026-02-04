@@ -183,6 +183,73 @@
     font-weight:900;
   }
   .chip small{ color:var(--muted); font-weight:700; }
+
+  /* ===== スマホ最適：工事情報を小窓（ドロワー）にする ===== */
+  .miniBtn{
+    margin-top:10px;
+    width:100%;
+    padding:10px 12px;
+    border:1px solid var(--bd);
+    border-radius: var(--radius);
+    background:#fff;
+    font-size:14px;
+    font-weight:900;
+  }
+
+  .panel{
+    position: fixed;
+    left:0; right:0;
+    top:0;
+    height: 100vh;
+    background:#fff;
+    z-index: 2000;
+    transform: translateY(-110%);
+    transition: transform .25s ease;
+    padding: 12px;
+    overflow:auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .panel.open{
+    transform: translateY(0);
+  }
+
+  .panelHead{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    position: sticky;
+    top:0;
+    background:#fff;
+    padding: 6px 0 10px;
+    border-bottom:1px solid #eee;
+    z-index:1;
+  }
+
+  .panelTitle{ font-weight:900; font-size:16px; }
+  .panelClose{
+    padding:10px 12px;
+    border:1px solid var(--bd);
+    border-radius: var(--radius);
+    background:#fff;
+    font-size:14px;
+  }
+
+  .compactBar{ margin-top:10px; }
+
+  /* PCは従来どおり：常に工事情報を表示 */
+  @media (min-width: 900px){
+    .miniBtn{ display:none; }
+    .panel{
+      position: static;
+      height:auto;
+      transform:none;
+      padding:0;
+      overflow:visible;
+    }
+    .panelHead{ display:none; }
+  }
 </style>
 </head>
 
@@ -198,40 +265,53 @@
     <div id="today" class="date"></div>
   </div>
 
-  <div class="card">
-    <label for="work">工事名</label>
-    <input id="work" type="text" placeholder="例：牧志テナントビル新築工事" autocomplete="off">
+  <!-- ▼ スマホ最適：工事情報は折りたたみ -->
+  <button class="miniBtn" id="btnPanel" type="button" aria-expanded="false">工事情報を開く</button>
 
-    <label for="prime">元請名</label>
-    <input id="prime" type="text" placeholder="例：〇〇建設株式会社" autocomplete="off">
-
-    <label>積算内訳（階数 + 内訳）</label>
-    <div class="inline">
-      <select id="floor" class="floor" aria-label="階数">
-        <option value="1F">1F</option><option value="2F">2F</option><option value="3F">3F</option>
-        <option value="4F">4F</option><option value="5F">5F</option><option value="6F">6F</option>
-        <option value="7F">7F</option><option value="8F">8F</option><option value="9F">9F</option>
-        <option value="10F">10F</option><option value="B1F">B1F</option><option value="B2F">B2F</option>
-        <option value="RF">RF</option><option value="PH">PH</option>
-      </select>
-      <input id="detail" class="detail" type="text" placeholder="例：柱・梁・壁など" autocomplete="off">
+  <div class="panel" id="panel" aria-hidden="true">
+    <div class="panelHead">
+      <div class="panelTitle">工事情報</div>
+      <button class="panelClose" id="btnPanelClose" type="button">閉じる</button>
     </div>
 
-    <div class="controls">
-      <button id="btnClear" type="button">本数クリア</button>
-      <button id="btnPdfShare" type="button">PDF出力（数量明細）</button>
-      <button id="btnCsv" type="button">CSV出力（マトリクス）</button>
+    <div class="card" style="margin-top:10px;">
+      <label for="work">工事名</label>
+      <input id="work" type="text" placeholder="例：牧志テナントビル新築工事" autocomplete="off">
+
+      <label for="prime">元請名</label>
+      <input id="prime" type="text" placeholder="例：〇〇建設株式会社" autocomplete="off">
+
+      <label>積算内訳（階数 + 内訳）</label>
+      <div class="inline">
+        <select id="floor" class="floor" aria-label="階数">
+          <option value="1F">1F</option><option value="2F">2F</option><option value="3F">3F</option>
+          <option value="4F">4F</option><option value="5F">5F</option><option value="6F">6F</option>
+          <option value="7F">7F</option><option value="8F">8F</option><option value="9F">9F</option>
+          <option value="10F">10F</option><option value="B1F">B1F</option><option value="B2F">B2F</option>
+          <option value="RF">RF</option><option value="PH">PH</option>
+        </select>
+        <input id="detail" class="detail" type="text" placeholder="例：柱・梁・壁など" autocomplete="off">
+      </div>
+
+      <div class="controls">
+        <button id="btnClear" type="button">本数クリア</button>
+        <button id="btnPdfShare" type="button">PDF出力（数量明細）</button>
+        <button id="btnCsv" type="button">CSV出力（マトリクス）</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋径別合計重量（kg）を出します。</div>
     </div>
-    <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋径別合計重量（kg）を出します。</div>
   </div>
 
-  <div class="sectionTitle">重量計算</div>
-  <div class="hint">径を選んで、材長ごとに本数を入力してください。</div>
+  <!-- ▼ 常に見せたい：径だけは上に固定でコンパクト -->
+  <div class="compactBar">
+    <div class="sectionTitle" style="margin:0;">重量計算</div>
+    <div class="hint" style="margin:4px 0 0;">径を選んで本数入力</div>
 
-  <div class="card" style="margin-top:10px;">
-    <label for="dia">径（入力する列）</label>
-    <select id="dia"></select>
-    <div class="muted" id="kgpm"></div>
+    <div class="card" style="margin-top:8px;">
+      <label for="dia">径（入力する列）</label>
+      <select id="dia"></select>
+      <div class="muted" id="kgpm"></div>
+    </div>
   </div>
 </div>
 
@@ -288,6 +368,40 @@
   // 初期化
   syncSpacer();
   onScroll();
+})();
+
+/* =========================
+   0.5) 工事情報パネル（小窓）開閉
+========================= */
+(function(){
+  const panel = document.getElementById("panel");
+  const btn = document.getElementById("btnPanel");
+  const closeBtn = document.getElementById("btnPanelClose");
+  if(!panel || !btn || !closeBtn) return;
+
+  const openPanel = () => {
+    panel.classList.add("open");
+    panel.setAttribute("aria-hidden","false");
+    btn.setAttribute("aria-expanded","true");
+    btn.textContent = "工事情報を閉じる";
+  };
+
+  const closePanel = () => {
+    panel.classList.remove("open");
+    panel.setAttribute("aria-hidden","true");
+    btn.setAttribute("aria-expanded","false");
+    btn.textContent = "工事情報を開く";
+  };
+
+  btn.addEventListener("click", ()=>{
+    panel.classList.contains("open") ? closePanel() : openPanel();
+  });
+  closeBtn.addEventListener("click", closePanel);
+
+  // Escで閉じる（PC）
+  document.addEventListener("keydown", (e)=>{
+    if (e.key === "Escape" && panel.classList.contains("open")) closePanel();
+  });
 })();
 
 /* =========================
@@ -412,10 +526,8 @@ function makeMatrixCsv(){
   const sumRow = ["合計kg", ...DIAS.map(d => (sumByDia[d] ? sumByDia[d].toFixed(3) : ""))];
   lines.push(sumRow.map(toCsvCell).join(","));
 
-  // （いらなければ削除OK）総重量
   lines.push(["総重量kg", grand.toFixed(3)].map(toCsvCell).join(","));
 
-  // Excel文字化け対策：BOM付きUTF-8
   return "\uFEFF" + lines.join("\r\n");
 }
 
