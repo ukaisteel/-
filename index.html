@@ -220,6 +220,7 @@
     <div class="controls">
       <button id="btnClear" type="button">本数クリア</button>
       <button id="btnPdfShare" type="button">PDF出力（数量明細）</button>
+      <button id="btnCsv" type="button">CSV出力（マトリクス）</button>
     </div>
     <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋径別合計重量（kg）を出します。</div>
   </div>
@@ -338,6 +339,16 @@ function buildPdfFilename(work, floor, detail, today){
   const uDetail = sanitizeFilePart((floor || "") + (detail ? " " + detail : "")) || "積算内訳未入力";
   return `${uWork}_${uDetail}_${today}.pdf`.slice(0, 180);
 }
+function buildCsvFilename(work, floor, detail, today){
+  const uWork = sanitizeFilePart(work) || "工事名未入力";
+  const uDetail = sanitizeFilePart((floor || "") + (detail ? " " + detail : "")) || "積算内訳未入力";
+  return `${uWork}_${uDetail}_${today}.csv`.slice(0, 180);
+}
+function toCsvCell(v){
+  const s = String(v ?? "");
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+  return s;
+}
 
 /* =========================
    5) 計算
@@ -383,7 +394,33 @@ function updateTotals(){
 }
 
 /* =========================
-   6) 画面描画（径切替）
+   6) CSV（マトリクス）
+========================= */
+function makeMatrixCsv(){
+  const { sumByDia, grand } = computeSums();
+
+  const header = ["材長", ...DIAS];
+  const lines = [];
+  lines.push(header.map(toCsvCell).join(","));
+
+  for (const m of LENGTHS_M) {
+    const mm = `${Math.round(m*1000)}mm`;
+    const row = [mm, ...DIAS.map(d => (qty[m][d] || ""))]; // 0は空欄
+    lines.push(row.map(toCsvCell).join(","));
+  }
+
+  const sumRow = ["合計kg", ...DIAS.map(d => (sumByDia[d] ? sumByDia[d].toFixed(3) : ""))];
+  lines.push(sumRow.map(toCsvCell).join(","));
+
+  // （いらなければ削除OK）総重量
+  lines.push(["総重量kg", grand.toFixed(3)].map(toCsvCell).join(","));
+
+  // Excel文字化け対策：BOM付きUTF-8
+  return "\uFEFF" + lines.join("\r\n");
+}
+
+/* =========================
+   7) 画面描画（径切替）
 ========================= */
 function renderList(){
   const d = diaSel.value;
@@ -438,8 +475,49 @@ document.getElementById("btnClear").addEventListener("click", ()=>{
   renderList();
 });
 
+document.getElementById("btnCsv").addEventListener("click", async ()=>{
+  const work  = (document.getElementById("work").value || "").trim();
+  const floor = (document.getElementById("floor").value || "").trim();
+  const detail= (document.getElementById("detail").value || "").trim();
+  const today = document.getElementById("today").textContent.trim();
+
+  try {
+    const csvText = makeMatrixCsv();
+    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    const filename = buildCsvFilename(work, floor, detail, today);
+
+    let shared = false;
+    if (navigator.share) {
+      try {
+        const file = new File([blob], filename, { type: "text/csv" });
+        if (navigator.canShare && navigator.canShare({ files:[file] })) {
+          await navigator.share({ title:"マトリクスCSV", files:[file] });
+          shared = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!shared) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      alert("CSVを保存しました。Excel/Numbersで開けます。");
+    }
+
+    setTimeout(()=>URL.revokeObjectURL(url), 15000);
+  } catch (e) {
+    console.error(e);
+    alert("CSV出力に失敗しました。\n理由: " + (e?.message || e));
+  }
+});
+
 /* =========================
-   7) 日本語フォント（TTF）取得
+   8) 日本語フォント（TTF）取得
 ========================= */
 const FONT_URLS = [
   "./NotoSansCJKjp-Regular.ttf",
@@ -464,7 +542,7 @@ async function getFontBytes(){
 }
 
 /* =========================
-   8) PDF（数量明細：マトリクス表）
+   9) PDF（数量明細：マトリクス表）
 ========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
