@@ -156,9 +156,9 @@
 
     <div class="controls">
       <button id="btnClear" type="button">本数クリア</button>
-      <button id="btnPdfShare" type="button">PDF出力（マトリクス表）</button>
+      <button id="btnPdfShare" type="button">PDF出力（数量明細）</button>
     </div>
-    <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋合計＋重量を出します。</div>
+    <div class="muted" style="margin-top:8px;">※PDFはA4 1枚。材長×径の本数表＋径別合計重量（kg）を出します。</div>
   </div>
 
   <div class="sectionTitle">重量計算</div>
@@ -236,8 +236,13 @@ function todayStr(){
 }
 document.getElementById("today").textContent = todayStr();
 
-function safeFilename(s){
-  return (s || "重量計算").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40);
+function sanitizeFilePart(s){
+  return (s || "").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g," ").trim();
+}
+function buildPdfFilename(work, floor, detail, today){
+  const uWork = sanitizeFilePart(work) || "工事名未入力";
+  const uDetail = sanitizeFilePart((floor || "") + (detail ? " " + detail : "")) || "積算内訳未入力";
+  return `${uWork}_${uDetail}_${today}.pdf`.slice(0, 180);
 }
 
 /* =========================
@@ -365,7 +370,9 @@ async function getFontBytes(){
 }
 
 /* =========================
-   8) PDF（マトリクス表）※真っ黒修正
+   8) PDF（数量明細：マトリクス表）
+   - 右端の合計列なし
+   - 下段は「径別 合計重量(kg)」
 ========================= */
 document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
   if (!window.PDFLib || !window.fontkit) {
@@ -390,24 +397,8 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
 
   const { sumByDia, grand } = computeSums();
 
-  // 本数の行合計・列合計
-  const rowSum = {};
-  const colSum = {};
-  for (const d of DIAS) colSum[d] = 0;
-
-  for (const m of LENGTHS_M) {
-    let s = 0;
-    for (const d of DIAS) {
-      const q = qty[m][d] || 0;
-      s += q;
-      colSum[d] += q;
-    }
-    rowSum[m] = s;
-  }
-  const totalBars = DIAS.reduce((acc,d)=>acc+colSum[d],0);
-
   try {
-    const { PDFDocument, rgb } = window.PDFLib; // ★ rgb を使う（重要）
+    const { PDFDocument, rgb } = window.PDFLib;
     const BLACK = rgb(0,0,0);
     const WHITE = rgb(1,1,1);
 
@@ -415,7 +406,7 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     pdfDoc.registerFontkit(window.fontkit);
     const fontJP = await pdfDoc.embedFont(fontBytes, { subset: false });
 
-    const pageW = 595.28, pageH = 841.89;
+    const pageW = 595.28, pageH = 841.89; // A4
     const page = pdfDoc.addPage([pageW, pageH]);
 
     // レイアウト
@@ -433,11 +424,11 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       y -= 12;
     };
 
-    // 右上
+    // ヘッダー
     page.drawText("鵜飼鉄筋工業", { x: pageW - M - 140, y: y - 10, size: 12, font: fontJP, color: BLACK });
     page.drawText(`日付: ${today}`, { x: pageW - M - 170, y: y - 28, size: 9, font: fontJP, color: BLACK });
 
-    page.drawText("重量計算（マトリクス表）", { x: M, y: y - 14, size: titleSize, font: fontJP, color: BLACK });
+    page.drawText("数量明細", { x: M, y: y - 14, size: titleSize, font: fontJP, color: BLACK });
     y -= 34;
 
     const infoLine = (text) => {
@@ -451,27 +442,25 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     y -= 6;
     drawLine();
 
-    // 表サイズ
+    // ===== 表（右端の合計列なし）=====
     const wLen = 64;
     const wDia = 52;
-    const wSum = 54;
-    const tableW = wLen + wDia*DIAS.length + wSum;
+    const tableW = wLen + wDia*DIAS.length;
 
     const hHead = 18;
     const hRow = 16;
 
     const tx = M;
     const ty = y;
+
+    // 最下段は「径別合計重量(kg)」なので、行として1つ追加（hHeadで統一）
     const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
 
-    // ★ ここが真っ黒の原因だった：白塗り + 枠線黒 を明示
+    // 白塗り＋枠
     page.drawRectangle({
       x: tx, y: ty - tableH, width: tableW, height: tableH,
-      color: WHITE,               // 塗りを白に固定
-      borderColor: BLACK,         // 枠線を黒
-      borderWidth: 1,
-      opacity: 1,
-      borderOpacity: 1
+      color: WHITE, borderColor: BLACK, borderWidth: 1,
+      opacity: 1, borderOpacity: 1
     });
 
     // 罫線
@@ -481,7 +470,6 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     lineV(tx);
     lineV(tx + wLen);
     for (let i=0;i<DIAS.length;i++) lineV(tx + wLen + wDia*(i+1));
-    lineV(tx + wLen + wDia*DIAS.length + wSum);
 
     lineH(ty);
     lineH(ty - hHead);
@@ -502,9 +490,8 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     for (let i=0;i<DIAS.length;i++){
       centerText(DIAS[i], tx + wLen + wDia*(i+0.5), hy, headSize);
     }
-    centerText("合計", tx + wLen + wDia*DIAS.length + wSum/2, hy, headSize);
 
-    // 本体
+    // 本体（セル＝本数、0は空欄）
     for (let r=0;r<LENGTHS_M.length;r++){
       const m = LENGTHS_M[r];
       const cy = ty - hHead - hRow*r - hRow/2;
@@ -516,65 +503,43 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
         const q = qty[m][d] || 0;
         if (q !== 0) centerText(String(q), tx + wLen + wDia*(c+0.5), cy, cellSize);
       }
-
-      const rs = rowSum[m] || 0;
-      if (rs !== 0) centerText(String(rs), tx + wLen + wDia*DIAS.length + wSum/2, cy, cellSize);
     }
 
-    // 合計行
+    // 最下段：径別 合計重量（kg）
     const sy = ty - hHead - hRow*LENGTHS_M.length - hHead/2;
-    centerText("合計", tx + wLen/2, sy, headSize);
+    centerText("合計kg", tx + wLen/2, sy, headSize);
     for (let c=0;c<DIAS.length;c++){
       const d = DIAS[c];
-      const cs = colSum[d] || 0;
-      if (cs !== 0) centerText(String(cs), tx + wLen + wDia*(c+0.5), sy, headSize);
+      const kg = sumByDia[d] || 0;
+      if (kg !== 0) centerText(kg.toFixed(3), tx + wLen + wDia*(c+0.5), sy, headSize);
     }
-    if (totalBars !== 0) centerText(String(totalBars), tx + wLen + wDia*DIAS.length + wSum/2, sy, headSize);
 
-    // 下：重量
+    // 表の下：総重量だけシンプルに
     let by = (ty - tableH) - 14;
-    const sumLine = (text) => {
-      page.drawText(text, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
-      by -= (smallSize + 5);
-    };
+    page.drawText(`総重量: ${grand.toFixed(3)} kg`, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
+    by -= (smallSize + 6);
+    page.drawText("※ 表セルは本数（0は空欄）。最下段は径別合計重量（kg）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
 
-    sumLine(`総重量: ${grand.toFixed(3)} kg`);
-    sumLine("径別重量（kg）:");
-
-    const leftX = M;
-    const rightX = M + 260;
-    let t = 0;
-    for (const d of DIAS) {
-      const s = `${d}: ${sumByDia[d].toFixed(3)} kg`;
-      const xx = (t % 2 === 0) ? leftX : rightX;
-      page.drawText(s, { x: xx, y: by, size: smallSize, font: fontJP, color: BLACK });
-      if (t % 2 === 1) by -= (smallSize + 5);
-      t++;
-    }
-    if (t % 2 === 1) by -= (smallSize + 5);
-
-    page.drawText("※ セルは本数（0は空欄）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
-
-    // 出力
+    // ===== 書き出し・共有 =====
     const pdfBytes = await pdfDoc.save();
     const blob = new Blob([pdfBytes], { type:"application/pdf" });
     const url = URL.createObjectURL(blob);
 
-    const filename = `${safeFilename(work)}_${today}_matrix.pdf`;
+    const filename = buildPdfFilename(work, floor, detail, today);
     let shared = false;
 
     if (navigator.share) {
       try {
         const file = new File([blob], filename, {type:"application/pdf"});
         if (navigator.canShare && navigator.canShare({files:[file]})) {
-          await navigator.share({ title:"重量計算 PDF", files:[file] });
+          await navigator.share({ title:"数量明細 PDF", files:[file] });
           shared = true;
         }
       } catch (_) {}
 
       if (!shared) {
         try {
-          await navigator.share({ title:"重量計算 PDF", url });
+          await navigator.share({ title:"数量明細 PDF", url });
           shared = true;
         } catch (_) {}
       }
