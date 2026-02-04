@@ -17,7 +17,7 @@
     font-family: system-ui,-apple-system,"Segoe UI",sans-serif;
     margin:0;
     background:var(--bg);
-    padding-top: 112px; /* fixed topbar 分 */
+    padding-top: 0; /* ★固定値は使わない（spacerで確保） */
   }
 
   /* ====== 固定ヘッダー（スクロールで縮小） ====== */
@@ -36,6 +36,8 @@
     box-shadow: 0 2px 10px rgba(0,0,0,.06);
   }
 
+  .headerSpacer{ height:0px; } /* ★JSがtopbarの実高さを入れる */
+
   .toprow{
     display:flex;
     justify-content:space-between;
@@ -50,7 +52,7 @@
     min-width:0;
   }
 
-  /* ロゴ：logo.png を同じフォルダに置いてね */
+  /* ロゴ：logo.png を同じフォルダに置く */
   .logo{
     height:40px;
     width:auto;
@@ -232,6 +234,9 @@
   </div>
 </div>
 
+<!-- ★ topbar分のスペース（JSで高さを自動調整） -->
+<div class="headerSpacer" id="headerSpacer"></div>
+
 <!-- ====== 本体 ====== -->
 <div style="padding: 0 12px 18px;">
   <div class="list" id="list"></div>
@@ -259,15 +264,28 @@
 
 <script>
 /* =========================
-   0) ヘッダー縮小
+   0) ヘッダー縮小 + スペーサー同期（重要）
 ========================= */
 (function(){
   const topbar = document.querySelector(".topbar");
+  const spacer = document.getElementById("headerSpacer");
+
+  const syncSpacer = () => {
+    spacer.style.height = topbar.offsetHeight + "px";
+  };
+
   const onScroll = () => {
     if (window.scrollY > 40) topbar.classList.add("shrink");
     else topbar.classList.remove("shrink");
+    syncSpacer();
   };
+
   window.addEventListener("scroll", onScroll, { passive:true });
+  window.addEventListener("resize", syncSpacer);
+  window.addEventListener("orientationchange", syncSpacer);
+
+  // 初期化
+  syncSpacer();
   onScroll();
 })();
 
@@ -526,15 +544,12 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
     const ty = y;
     const tableH = hHead + (hRow * LENGTHS_M.length) + hHead;
 
-    // 外枠太め + 白塗り
     page.drawRectangle({
       x: tx, y: ty - tableH, width: tableW, height: tableH,
       color: WHITE, borderColor: BLACK, borderWidth: 2
     });
 
-    // ヘッダー背景
     page.drawRectangle({ x: tx, y: ty - hHead, width: tableW, height: hHead, color: GRAY });
-    // 合計kg行背景
     page.drawRectangle({ x: tx, y: (ty - tableH), width: tableW, height: hHead, color: GRAY });
 
     const lineH = (yy, thick=0.6) => page.drawLine({ start:{x:tx, y:yy}, end:{x:tx+tableW, y:yy}, thickness:thick, color: BLACK });
@@ -555,14 +570,12 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       page.drawText(text, { x: cx - approxW/2, y: cy - size/2, size, font: fontJP, color: BLACK });
     };
 
-    // ヘッダー文字
     const hy = ty - hHead/2;
     centerText("材長", tx + wLen/2, hy, headSize);
     for (let i=0;i<DIAS.length;i++){
       centerText(DIAS[i], tx + wLen + wDia*(i+0.5), hy, headSize);
     }
 
-    // 本体
     for (let r=0;r<LENGTHS_M.length;r++){
       const m = LENGTHS_M[r];
       const cy = ty - hHead - hRow*r - hRow/2;
@@ -577,7 +590,6 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       }
     }
 
-    // 合計kg行
     const sy = ty - hHead - hRow*LENGTHS_M.length - hHead/2;
     centerText("合計kg", tx + wLen/2, sy, headSize);
     for (let c=0;c<DIAS.length;c++){
@@ -586,7 +598,6 @@ document.getElementById("btnPdfShare").addEventListener("click", async ()=>{
       if (kg !== 0) centerText(kg.toFixed(3), tx + wLen + wDia*(c+0.5), sy, headSize);
     }
 
-    // 総重量
     let by = (ty - tableH) - 14;
     page.drawText(`総重量: ${grand.toFixed(3)} kg`, { x: M, y: by, size: smallSize, font: fontJP, color: BLACK });
     page.drawText("※ 表セルは本数（0は空欄）。最下段は径別合計重量（kg）。", { x: M, y: M + 8, size: 9, font: fontJP, color: BLACK });
